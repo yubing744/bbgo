@@ -71,11 +71,11 @@ func (r *CandlesticksRequest) Do(ctx context.Context) ([]Candle, error) {
 	}
 
 	if r.before != nil {
-		params.Add("before", strconv.FormatInt(*r.before, 10))
+		params.Add("before", strconv.FormatInt(*r.before*1000, 10))
 	}
 
 	if r.after != nil {
-		params.Add("after", strconv.FormatInt(*r.after, 10))
+		params.Add("after", strconv.FormatInt(*r.after*1000, 10))
 	}
 
 	if r.limit != nil {

@@ -16,7 +16,12 @@ import (
 	"github.com/c9s/bbgo/pkg/types"
 	"github.com/c9s/bbgo/pkg/util"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
+
+var log = logrus.WithFields(logrus.Fields{
+	"exchange": "okex",
+})
 
 const defaultHTTPTimeout = time.Second * 15
 const RestBaseURL = "https://www.okex.com/"

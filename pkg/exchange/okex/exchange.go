@@ -295,6 +295,11 @@ func (e *Exchange) NewStream() types.Stream {
 }
 
 func (e *Exchange) QueryKLines(ctx context.Context, symbol string, interval types.Interval, options types.KLineQueryOptions) ([]types.KLine, error) {
+	if options.StartTime != nil && options.EndTime != nil {
+		log.Debug("start time is not nil, query history klines")
+		return e.queryHistoryKLines(ctx, symbol, interval, options)
+	}
+
 	if err := marketDataLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
@@ -305,11 +310,56 @@ func (e *Exchange) QueryKLines(ctx context.Context, symbol string, interval type
 	req.Bar(intervalParam)
 
 	if options.StartTime != nil {
-		req.After(options.StartTime.Unix())
+		req.Before(options.StartTime.Unix())
 	}
 
 	if options.EndTime != nil {
-		req.Before(options.EndTime.Unix())
+		req.After(options.EndTime.Unix())
+	}
+
+	candles, err := req.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var klines []types.KLine
+	for _, candle := range candles {
+		klines = append(klines, types.KLine{
+			Exchange:    types.ExchangeOKEx,
+			Symbol:      symbol,
+			Interval:    interval,
+			Open:        candle.Open,
+			High:        candle.High,
+			Low:         candle.Low,
+			Close:       candle.Close,
+			Closed:      true,
+			Volume:      candle.Volume,
+			QuoteVolume: candle.VolumeInCurrency,
+			StartTime:   types.Time(candle.Time),
+			EndTime:     types.Time(candle.Time.Add(interval.Duration() - time.Millisecond)),
+		})
+	}
+
+	return klines, nil
+
+}
+
+func (e *Exchange) queryHistoryKLines(ctx context.Context, symbol string, interval types.Interval, options types.KLineQueryOptions) ([]types.KLine, error) {
+	if err := marketDataLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
+	intervalParam := toLocalInterval(interval.String())
+
+	req := e.client.MarketDataService.NewHistoryCandlesticksRequest(toLocalSymbol(symbol))
+	req.Bar(intervalParam)
+
+	if options.StartTime != nil {
+		req.Before(options.StartTime.Unix())
+	}
+
+	if options.EndTime != nil {
+		req.After(options.EndTime.Unix())
 	}
 
 	candles, err := req.Do(ctx)
