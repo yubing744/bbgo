@@ -98,16 +98,26 @@ func (r *PlaceOrderRequest) Parameters() map[string]interface{} {
 }
 
 func (r *PlaceOrderRequest) Do(ctx context.Context) (*OrderResponse, error) {
-	payload := r.Parameters()
+	payload, err := r.GetParameters()
+	if err != nil {
+		return nil, errors.Wrap(err, "PlaceOrderRequest GetParameters Error")
+	}
+
 	req, err := r.client.newAuthenticatedRequest("POST", "/api/v5/trade/order", nil, payload)
 	if err != nil {
 		return nil, err
 	}
 
+	log.WithField("payload", payload).
+		Debug("PlaceOrderRequest payload")
+
 	response, err := r.client.sendRequest(req)
 	if err != nil {
 		return nil, err
 	}
+
+	log.WithField("response", response).
+		Debug("PlaceOrderRequest response")
 
 	var orderResponse struct {
 		Code    string          `json:"code"`

@@ -167,6 +167,7 @@ func (e *Exchange) SubmitOrder(ctx context.Context, order types.SubmitOrder) (*t
 		return nil, err
 	}
 
+	orderReq.TradeMode("cash")
 	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
 	orderReq.Side(toLocalSideType(order.Side))
 
@@ -202,9 +203,16 @@ func (e *Exchange) SubmitOrder(ctx context.Context, order types.SubmitOrder) (*t
 		return nil, err
 	}
 
+	log.WithField("orderHead", orderHead).
+		Debug("order req result")
+
+	if orderHead.Code != "0" {
+		return nil, errors.New(orderHead.Message)
+	}
+
 	orderID, err := strconv.ParseInt(orderHead.OrderID, 10, 64)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "okex exchange submit order parse orderHead.OrderID")
 	}
 
 	return &types.Order{

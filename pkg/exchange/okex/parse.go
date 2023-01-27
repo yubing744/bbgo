@@ -2,12 +2,12 @@ package okex
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/valyala/fastjson"
 
 	"github.com/c9s/bbgo/pkg/exchange/okex/okexapi"
@@ -143,7 +143,7 @@ func parseBookData(v *fastjson.Value) (*BookEvent, error) {
 
 	millisecondTimestamp, err := strconv.ParseInt(string(data[0].GetStringBytes("ts")), 10, 64)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "parseBookData")
 	}
 
 	checksum := data[0].GetInt("checksum")
@@ -209,6 +209,7 @@ func (c *Candle) KLine() types.KLine {
 	return types.KLine{
 		Exchange:    types.ExchangeOKEx,
 		Interval:    interval,
+		Symbol:      c.Symbol,
 		Open:        c.Open,
 		High:        c.High,
 		Low:         c.Low,
@@ -244,7 +245,7 @@ func parseCandle(channel string, v *fastjson.Value) (*Candle, error) {
 
 	timestamp, err := strconv.ParseInt(string(arr[0].GetStringBytes()), 10, 64)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "parseCandle")
 	}
 
 	open, err := fixedpoint.NewFromString(string(arr[1].GetStringBytes()))

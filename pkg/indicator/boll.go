@@ -5,6 +5,8 @@ import (
 
 	"github.com/c9s/bbgo/pkg/datatype/floats"
 	"github.com/c9s/bbgo/pkg/types"
+
+	log "github.com/sirupsen/logrus"
 )
 
 /*
@@ -93,6 +95,8 @@ func (inc *BOLL) Update(value float64) {
 
 	inc.UpBand.Push(upBand)
 	inc.DownBand.Push(downBand)
+
+	log.WithField("value", value).Debug("BOLL updated")
 }
 
 func (inc *BOLL) BindK(target KLineClosedEmitter, symbol string, interval types.Interval) {
