@@ -18,6 +18,12 @@ func (p *PlaceOrderRequest) TradeMode(tradeMode string) *PlaceOrderRequest {
 	return p
 }
 
+func (p *PlaceOrderRequest) MarginCurrency(marginCurrency string) *PlaceOrderRequest {
+	p.marginCurrency = &marginCurrency
+	return p
+}
+
+
 func (p *PlaceOrderRequest) ClientOrderID(clientOrderID string) *PlaceOrderRequest {
 	p.clientOrderID = &clientOrderID
 	return p
@@ -30,6 +36,11 @@ func (p *PlaceOrderRequest) Tag(tag string) *PlaceOrderRequest {
 
 func (p *PlaceOrderRequest) Side(side SideType) *PlaceOrderRequest {
 	p.side = side
+	return p
+}
+
+func (p *PlaceOrderRequest) PositionSide(positionSide string) *PlaceOrderRequest {
+	p.positionSide = &positionSide
 	return p
 }
 
@@ -72,6 +83,11 @@ func (p *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 	// assign parameter of tradeMode
 	params["tdMode"] = tradeMode
 
+	// config margin currency
+	if p.marginCurrency != nil {
+		params["ccy"] = *p.marginCurrency
+	}
+
 	// check clientOrderID field -> json key clOrdId
 	if p.clientOrderID != nil {
 		clientOrderID := *p.clientOrderID
@@ -102,6 +118,18 @@ func (p *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 
 	// assign parameter of side
 	params["side"] = side
+
+	// check position side
+	if p.positionSide!=nil {
+		posSide := *p.positionSide
+
+		switch posSide {
+		case "net", "long", "short":
+			params["posSide"] = posSide
+		default:
+			return params, fmt.Errorf("position side value %v is invalid", side)
+		}
+	}
 
 	// check orderType field -> json key ordType
 	orderType := p.orderType

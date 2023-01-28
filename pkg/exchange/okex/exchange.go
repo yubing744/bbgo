@@ -25,6 +25,8 @@ var log = logrus.WithFields(logrus.Fields{
 })
 
 type Exchange struct {
+	types.MarginSettings
+
 	key, secret, passphrase string
 
 	client *okexapi.RestClient
@@ -160,6 +162,14 @@ func (e *Exchange) QueryAccountBalances(ctx context.Context) (types.BalanceMap, 
 }
 
 func (e *Exchange) SubmitOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
+	if e.IsMargin {
+		return e.submitMarginOrder(ctx, order)
+	} else {
+		return e.submitSpotOrder(ctx, order)
+	}
+}
+
+func (e *Exchange) submitSpotOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
 	orderReq := e.client.TradeService.NewPlaceOrderRequest()
 
 	orderType, err := toLocalOrderType(order.Type)
@@ -258,6 +268,77 @@ func (e *Exchange) SubmitOrder(ctx context.Context, order types.SubmitOrder) (*t
 			})
 		}
 	*/
+}
+
+func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
+	orderReq := e.client.TradeService.NewPlaceOrderRequest()
+
+	orderType, err := toLocalOrderType(order.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	orderReq.TradeMode("cross") // Margin mode cross isolated
+	orderReq.MarginCurrency(order.Market.QuoteCurrency)
+	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
+	orderReq.Side(toLocalSideType(order.Side))
+
+	if order.Market.Symbol != "" {
+		orderReq.Quantity(order.Market.FormatQuantity(order.Quantity))
+	} else {
+		// TODO report error
+		orderReq.Quantity(order.Quantity.FormatString(8))
+	}
+
+	// set price field for limit orders
+	switch order.Type {
+	case types.OrderTypeStopLimit, types.OrderTypeLimit:
+		if order.Market.Symbol != "" {
+			orderReq.Price(order.Market.FormatPrice(order.Price))
+		} else {
+			// TODO report error
+			orderReq.Price(order.Price.FormatString(8))
+		}
+	}
+
+	switch order.TimeInForce {
+	case "FOK":
+		orderReq.OrderType(okexapi.OrderTypeFOK)
+	case "IOC":
+		orderReq.OrderType(okexapi.OrderTypeIOC)
+	default:
+		orderReq.OrderType(orderType)
+	}
+
+	orderHead, err := orderReq.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithField("orderHead", orderHead).
+		Debug("order req result")
+
+	if orderHead.Code != "0" {
+		return nil, errors.New(orderHead.Message)
+	}
+
+	orderID, err := strconv.ParseInt(orderHead.OrderID, 10, 64)
+	if err != nil {
+		return nil, errors.Wrap(err, "okex exchange submit order parse orderHead.OrderID")
+	}
+
+	return &types.Order{
+		SubmitOrder:      order,
+		Exchange:         types.ExchangeOKEx,
+		OrderID:          uint64(orderID),
+		Status:           types.OrderStatusNew,
+		ExecutedQuantity: fixedpoint.Zero,
+		IsWorking:        true,
+		CreationTime:     types.Time(time.Now()),
+		UpdateTime:       types.Time(time.Now()),
+		IsMargin:         false,
+		IsIsolated:       false,
+	}, nil
 }
 
 func (e *Exchange) QueryOpenOrders(ctx context.Context, symbol string) (orders []types.Order, err error) {

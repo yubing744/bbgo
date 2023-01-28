@@ -75,6 +75,10 @@ type PlaceOrderRequest struct {
 	// non-margin mode cash
 	tradeMode string `param:"tdMode" validValues:"cross,isolated,cash"`
 
+	// Margin currency
+	// Only applicable to cross MARGIN orders in Single-currency margin
+	marginCurrency *string `param:"ccy"`
+
 	// A combination of case-sensitive alphanumerics, all numbers, or all letters of up to 32 characters.
 	clientOrderID *string `param:"clOrdId"`
 
@@ -83,6 +87,12 @@ type PlaceOrderRequest struct {
 
 	// "buy" or "sell"
 	side SideType `param:"side" validValues:"buy,sell"`
+
+	// Position side
+	// The default is net in the net mode
+	// It is required in the long/short mode, and can only be long or short.
+	// Only applicable to FUTURES/SWAP.
+	positionSide *string `param:"posSide"`
 
 	orderType OrderType `param:"ordType"`
 
