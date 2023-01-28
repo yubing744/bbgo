@@ -228,6 +228,11 @@ func (s *BacktestService) QueryKLinesCh(since, until time.Time, exchange types.E
 		"intervals": types.IntervalSlice(intervals),
 	})
 
+	log.
+		WithField("sql", sql).
+		WithField("args", args).
+		Debug("QueryKLinesCh params")
+
 	sql, args, err = sqlx.In(sql, args...)
 	if err != nil {
 		return returnError(err)

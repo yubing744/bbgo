@@ -348,8 +348,9 @@ func (e *Exchange) QueryKLines(ctx context.Context, symbol string, interval type
 		})
 	}
 
-	return klines, nil
+	reverseklines(klines)
 
+	return klines, nil
 }
 
 func (e *Exchange) queryHistoryKLines(ctx context.Context, symbol string, interval types.Interval, options types.KLineQueryOptions) ([]types.KLine, error) {
@@ -393,6 +394,13 @@ func (e *Exchange) queryHistoryKLines(ctx context.Context, symbol string, interv
 		})
 	}
 
-	return klines, nil
+	reverseklines(klines)
 
+	return klines, nil
+}
+
+func reverseklines(s []types.KLine) {
+	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
+		s[i], s[j] = s[j], s[i]
+	}
 }

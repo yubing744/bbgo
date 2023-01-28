@@ -69,10 +69,6 @@ func (r *HistoryCandlesticksRequest) Do(ctx context.Context) ([]Candle, error) {
 		params.Add("limit", strconv.Itoa(*r.limit))
 	}
 
-	log.
-		WithField("params", params).
-		Debug("HistoryCandlesticksRequest params")
-
 	req, err := r.client.newRequest("GET", "/api/v5/market/history-candles", params, nil)
 	if err != nil {
 		return nil, err
@@ -82,10 +78,6 @@ func (r *HistoryCandlesticksRequest) Do(ctx context.Context) ([]Candle, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	log.
-		WithField("resp", resp).
-		Debug("HistoryCandlesticksRequest resp")
 
 	type candleEntry [7]string
 	var candlesResponse struct {

@@ -12,18 +12,18 @@ for each kline, the backtest engine:
 
 There are 2 ways that a strategy could work with backtest engine:
 
-1. the strategy receives kline from the market data stream, and then it submits the order by the given market data to the backtest engine.
-   backtest engine receives the order and then pushes the trade and order updates to the user data stream.
+ 1. the strategy receives kline from the market data stream, and then it submits the order by the given market data to the backtest engine.
+    backtest engine receives the order and then pushes the trade and order updates to the user data stream.
 
-   the strategy receives the trade and update its position.
+    the strategy receives the trade and update its position.
 
-2. the strategy places the orders when it starts. (like grid) the strategy then receives the order updates and then submit a new order
-   by its order update message.
+ 2. the strategy places the orders when it starts. (like grid) the strategy then receives the order updates and then submit a new order
+    by its order update message.
 
 We need to ensure that:
 
-1. if the strategy submits the order from the market data stream, since it's a separate goroutine, the strategy should block the backtest engine
-   to process the trades before the next kline is published.
+ 1. if the strategy submits the order from the market data stream, since it's a separate goroutine, the strategy should block the backtest engine
+    to process the trades before the next kline is published.
 */
 package backtest
 
@@ -381,8 +381,11 @@ func (e *Exchange) ConsumeKLine(k types.KLine, requiredInterval types.Interval) 
 	requiredKline, ok := matching.klineCache[k.Interval]
 	if ok { // pop out all the old
 		if requiredKline.Interval != requiredInterval {
-			panic(fmt.Sprintf("expect required kline interval %s, got interval %s", requiredInterval.String(), requiredKline.Interval.String()))
+			log.WithField("kline", k).Debug("kline")
+			log.Warnf(fmt.Sprintf("expect required kline interval %s, got interval %s, and kline interval: %s", requiredInterval.String(), requiredKline.Interval.String(), k.Interval))
+			return
 		}
+
 		e.currentTime = requiredKline.EndTime.Time()
 		// here we generate trades and order updates
 		matching.processKLine(requiredKline)

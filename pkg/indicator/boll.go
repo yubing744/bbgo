@@ -95,24 +95,28 @@ func (inc *BOLL) Update(value float64) {
 
 	inc.UpBand.Push(upBand)
 	inc.DownBand.Push(downBand)
-
-	log.WithField("value", value).Debug("BOLL updated")
 }
 
 func (inc *BOLL) BindK(target KLineClosedEmitter, symbol string, interval types.Interval) {
-	target.OnKLineClosed(types.KLineWith(symbol, interval, inc.PushK))
+	target.OnKLineClosed(types.KLineWith(symbol, interval, func(k types.KLine) {
+		log.Debug("BOLL BindK OnKLineClosed")
+		inc.PushK(k)
+	}))
 }
 
 func (inc *BOLL) PushK(k types.KLine) {
 	if inc.EndTime != zeroTime && k.EndTime.Before(inc.EndTime) {
 		return
 	}
+
 	inc.Update(k.Close.Float64())
 	inc.EndTime = k.EndTime.Time()
 	inc.EmitUpdate(inc.SMA.Last(), inc.UpBand.Last(), inc.DownBand.Last())
 }
 
 func (inc *BOLL) LoadK(allKLines []types.KLine) {
+	log.WithField("kline_size", len(allKLines)).Debug("BOLL LoadK")
+
 	for _, k := range allKLines {
 		inc.PushK(k)
 	}
