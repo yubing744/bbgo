@@ -121,6 +121,7 @@ func (s *Stream) handleEvent(event WebSocketEvent) {
 			var subs = []WebsocketSubscription{
 				{Channel: "account"},
 				{Channel: "orders", InstrumentType: string(okexapi.InstrumentTypeSpot)},
+				{Channel: "orders", InstrumentType: string(okexapi.InstrumentTypeMargin)},
 			}
 
 			log.Infof("subscribing private channels: %+v", subs)
@@ -218,6 +219,5 @@ func (s *Stream) dispatchEvent(e interface{}) {
 
 	case []okexapi.OrderDetails:
 		s.EmitOrderDetailsEvent(et)
-
 	}
 }
