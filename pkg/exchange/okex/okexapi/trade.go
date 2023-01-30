@@ -284,6 +284,8 @@ type OrderDetails struct {
 	ClientOrderID string    `json:"clOrdId"`
 	OrderType     OrderType `json:"ordType"`
 	Side          SideType  `json:"side"`
+	PostionSide   string    `json:"posSide"`
+	TradeMode     string    `json:"tdMode"`
 
 	// Accumulated fill quantity
 	FilledQuantity fixedpoint.Value `json:"accFillSz"`

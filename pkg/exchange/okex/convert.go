@@ -18,6 +18,7 @@ func toGlobalSymbol(symbol string) string {
 }
 
 // //go:generate sh -c "echo \"package okex\nvar spotSymbolMap = map[string]string{\n\" $(curl -s -L 'https://okex.com/api/v5/public/instruments?instType=SPOT' | jq -r '.data[] | \"\\(.instId | sub(\"-\" ; \"\") | tojson ): \\( .instId | tojson),\n\"') \"\n}\" > symbols.go"
+//
 //go:generate go run gensymbols.go
 func toLocalSymbol(symbol string) string {
 	if s, ok := spotSymbolMap[symbol]; ok {
@@ -139,6 +140,17 @@ func toGlobalTrades(orderDetails []okexapi.OrderDetails) ([]types.Trade, error) 
 
 		side := types.SideType(strings.ToUpper(string(orderDetail.Side)))
 
+		isMargin := false
+		isIsolated := false
+		tdMode := orderDetail.TradeMode
+		if tdMode == "isolated" || tdMode == "cross" {
+			isMargin = true
+
+			if tdMode == "isolated" {
+				isIsolated = true
+			}
+		}
+
 		trades = append(trades, types.Trade{
 			ID:            uint64(tradeID),
 			OrderID:       uint64(orderID),
@@ -151,12 +163,18 @@ func toGlobalTrades(orderDetails []okexapi.OrderDetails) ([]types.Trade, error) 
 			IsBuyer:       side == types.SideTypeBuy,
 			IsMaker:       orderDetail.ExecutionType == "M",
 			Time:          types.Time(orderDetail.LastFilledTime),
-			Fee:           orderDetail.LastFilledFee,
+			Fee:           orderDetail.LastFilledFee.Neg(),
 			FeeCurrency:   orderDetail.LastFilledFeeCurrency,
-			IsMargin:      false,
-			IsIsolated:    false,
+			IsMargin:      isMargin,
+			IsIsolated:    isIsolated,
+			IsFutures:     false,
 		})
 	}
+
+	log.
+		WithField("orders", orderDetails).
+		WithField("trades", trades).
+		Debug("toGlobalTrades")
 
 	return trades, nil
 }
