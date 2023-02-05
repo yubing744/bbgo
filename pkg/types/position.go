@@ -29,16 +29,31 @@ type PositionRisk struct {
 	LiquidationPrice fixedpoint.Value `json:"liquidationPrice"`
 }
 
+type PositionInfo struct {
+	Symbol        string `json:"symbol" db:"symbol"`
+	BaseCurrency  string `json:"baseCurrency" db:"base_currency"`
+	QuoteCurrency string `json:"quoteCurrency" db:"quote_currency"`
+
+	Base        fixedpoint.Value `json:"base" db:"base"`
+	Quote       fixedpoint.Value `json:"quote" db:"quote"`
+	AverageCost fixedpoint.Value `json:"averageCost" db:"average_cost"`
+	TradeID     uint64           `json:"tradeId" db:"trade_id"`
+
+	OpenedAt  time.Time `json:"openedAt,omitempty" db:"-"`
+	ChangedAt time.Time `json:"changedAt,omitempty" db:"changed_at"`
+}
+
 type Position struct {
 	Symbol        string `json:"symbol" db:"symbol"`
-	BaseCurrency  string `json:"baseCurrency" db:"base"`
-	QuoteCurrency string `json:"quoteCurrency" db:"quote"`
+	BaseCurrency  string `json:"baseCurrency" db:"base_currency"`
+	QuoteCurrency string `json:"quoteCurrency" db:"quote_currency"`
 
 	Market Market `json:"market,omitempty"`
 
 	Base        fixedpoint.Value `json:"base" db:"base"`
 	Quote       fixedpoint.Value `json:"quote" db:"quote"`
 	AverageCost fixedpoint.Value `json:"averageCost" db:"average_cost"`
+	TradeID     uint64           `json:"tradeId" db:"trade_id"`
 
 	// ApproximateAverageCost adds the computed fee in quote in the average cost
 	// This is used for calculating net profit
@@ -144,8 +159,12 @@ func (p *Position) NewMarketCloseOrder(percentage fixedpoint.Value) *SubmitOrder
 	base := p.GetBase()
 
 	quantity := base.Abs()
+	fullClose := false
+
 	if percentage.Compare(fixedpoint.One) < 0 {
 		quantity = quantity.Mul(percentage)
+	} else {
+		fullClose = true
 	}
 
 	if quantity.Compare(p.Market.MinQuantity) < 0 {
@@ -167,6 +186,7 @@ func (p *Position) NewMarketCloseOrder(percentage fixedpoint.Value) *SubmitOrder
 		Side:             side,
 		Quantity:         quantity,
 		MarginSideEffect: SideEffectTypeAutoRepay,
+		ClosePosition:    fullClose,
 	}
 }
 
@@ -209,6 +229,18 @@ func (p *Position) EmitModify(baseQty fixedpoint.Value, quoteQty fixedpoint.Valu
 	for _, cb := range p.modifyCallbacks {
 		cb(baseQty, quoteQty, price)
 	}
+}
+
+func (p *Position) Update(pos PositionInfo) error {
+	p.Base = pos.Base
+	p.Quote = pos.Quote
+	p.AverageCost = pos.AverageCost
+	p.TradeID = pos.TradeID
+	p.ChangedAt = pos.ChangedAt
+
+	p.EmitModify(p.Base, p.Quote, p.AverageCost)
+
+	return nil
 }
 
 // ModifyBase modifies position base quantity with `qty`

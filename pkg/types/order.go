@@ -181,7 +181,7 @@ func (o *SubmitOrder) Out() (fixedpoint.Value, string) {
 func (o *SubmitOrder) String() string {
 	switch o.Type {
 	case OrderTypeMarket:
-		return fmt.Sprintf("SubmitOrder %s %s %s %s", o.Symbol, o.Type, o.Side, o.Quantity.String())
+		return fmt.Sprintf("SubmitOrder %s %s %s %s %v", o.Symbol, o.Type, o.Side, o.Quantity.String(), o.ClosePosition)
 	}
 
 	return fmt.Sprintf("SubmitOrder %s %s %s %s @ %s", o.Symbol, o.Type, o.Side, o.Quantity.String(), o.Price.String())
@@ -190,7 +190,7 @@ func (o *SubmitOrder) String() string {
 func (o *SubmitOrder) PlainText() string {
 	switch o.Type {
 	case OrderTypeMarket:
-		return fmt.Sprintf("SubmitOrder %s %s %s %s", o.Symbol, o.Type, o.Side, o.Quantity.String())
+		return fmt.Sprintf("SubmitOrder %s %s %s %s %v", o.Symbol, o.Type, o.Side, o.Quantity.String(), o.ClosePosition)
 	}
 
 	return fmt.Sprintf("SubmitOrder %s %s %s %s @ %s", o.Symbol, o.Type, o.Side, o.Quantity.String(), o.Price.String())

@@ -64,6 +64,12 @@ func (c *TradeService) NewGetTransactionDetailsRequest() *GetTransactionDetailsR
 	}
 }
 
+func (c *TradeService) NewClosePositionOrderRequest() *ClosePositionRequest {
+	return &ClosePositionRequest{
+		client: c.client,
+	}
+}
+
 //go:generate requestgen -type PlaceOrderRequest
 type PlaceOrderRequest struct {
 	client *RestClient
@@ -562,11 +568,72 @@ type PositionDetails struct {
 	IMR         fixedpoint.Value `json:"imr"`
 	Margin      fixedpoint.Value `json:"margin"`
 	MarginRatio fixedpoint.Value `json:"mgnRatio"`
-	TradeId     string           `json:"tradeId"`
+	TradeID     string           `json:"tradeId"`
 	CCY         string           `json:"ccy"`
 	Last        fixedpoint.Value `json:"last"`
+
+	LiabCcy string           `json:"liabCcy"`
+	Liab    fixedpoint.Value `json:"liab"`
 
 	PushTime     types.MillisecondTimestamp `json:"pTime"`
 	UpdateTime   types.MillisecondTimestamp `json:"uTime"`
 	CreationTime types.MillisecondTimestamp `json:"cTime"`
+}
+
+type ClosePositionRequest struct {
+	client *RestClient
+
+	instrumentID string  `param:"instId"`
+	posSide      *string `param:"posSide"`
+	marginMode   string  `param:"mgnMode"`
+	ccy          *string `param:"ccy"`
+	autoCxl      *string `param:"autoCxl"`
+	clOrdId      *string `param:"clOrdId"`
+	tag          *string `param:"tag"`
+}
+
+type ClosePositionResponse struct {
+	InstrumentID string `param:"instId"`
+	PosSide      string `param:"posSide"`
+	ClOrdId      string `param:"clOrdId"`
+	Tag          string `param:"tag"`
+}
+
+func (r *ClosePositionRequest) Parameters() map[string]interface{} {
+	payload, _ := r.GetParameters()
+	return payload
+}
+
+func (r *ClosePositionRequest) Do(ctx context.Context) ([]ClosePositionResponse, error) {
+	payload, err := r.GetParameters()
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithField("payload", payload).
+		Debug("ClosePositionRequest payload")
+
+	req, err := r.client.newAuthenticatedRequest("POST", "/api/v5/trade/close-position", nil, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := r.client.sendRequest(req)
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithField("response", response).
+		Debug("ClosePositionRequest response")
+
+	var orderResponse struct {
+		Code    string                  `json:"code"`
+		Message string                  `json:"msg"`
+		Data    []ClosePositionResponse `json:"data"`
+	}
+	if err := response.DecodeJSON(&orderResponse); err != nil {
+		return nil, err
+	}
+
+	return orderResponse.Data, nil
 }

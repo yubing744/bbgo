@@ -84,7 +84,7 @@ type StandardStream struct {
 	orderUpdateCallbacks []func(order Order)
 
 	// private position update callbacks
-	positionUpdateCallbacks []func(position Position)
+	positionUpdateCallbacks []func(position PositionInfo)
 
 	// balance snapshot callbacks
 	balanceSnapshotCallbacks []func(balances BalanceMap)
@@ -118,7 +118,7 @@ type StandardStreamEmitter interface {
 	EmitDisconnect()
 	EmitTradeUpdate(Trade)
 	EmitOrderUpdate(Order)
-	EmitPositionUpdate(Position)
+	EmitPositionUpdate(PositionInfo)
 	EmitBalanceSnapshot(BalanceMap)
 	EmitBalanceUpdate(BalanceMap)
 	EmitKLineClosed(KLine)

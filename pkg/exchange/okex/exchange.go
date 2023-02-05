@@ -271,6 +271,10 @@ func (e *Exchange) submitSpotOrder(ctx context.Context, order types.SubmitOrder)
 }
 
 func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
+	if order.ClosePosition {
+		return e.submitClosePositionOrder(ctx, order)
+	}
+
 	orderReq := e.client.TradeService.NewPlaceOrderRequest()
 
 	orderType, err := toLocalOrderType(order.Type)
@@ -331,6 +335,42 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 		SubmitOrder:      order,
 		Exchange:         types.ExchangeOKEx,
 		OrderID:          uint64(orderID),
+		Status:           types.OrderStatusNew,
+		ExecutedQuantity: fixedpoint.Zero,
+		IsWorking:        true,
+		CreationTime:     types.Time(time.Now()),
+		UpdateTime:       types.Time(time.Now()),
+		IsMargin:         false,
+		IsIsolated:       false,
+	}, nil
+}
+
+func (e *Exchange) submitClosePositionOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
+	orderReq := e.client.TradeService.NewClosePositionOrderRequest()
+
+	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
+
+	orderReq.MarginMode("cross")
+	orderReq.CCY(order.Market.QuoteCurrency)
+
+	if e.IsIsolatedMargin {
+		orderReq.MarginMode("isolated")
+	}
+
+	orderReq.Tag(order.Tag)
+
+	orderHead, err := orderReq.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithField("orderHead", orderHead).
+		Debug("order req result")
+
+	return &types.Order{
+		SubmitOrder:      order,
+		Exchange:         types.ExchangeOKEx,
+		OrderID:          uint64(0),
 		Status:           types.OrderStatusNew,
 		ExecutedQuantity: fixedpoint.Zero,
 		IsWorking:        true,
