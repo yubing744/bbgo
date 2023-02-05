@@ -28,11 +28,12 @@ type Stream struct {
 	client *okexapi.RestClient
 
 	// public callbacks
-	candleEventCallbacks       []func(candle Candle)
-	bookEventCallbacks         []func(book BookEvent)
-	eventCallbacks             []func(event WebSocketEvent)
-	accountEventCallbacks      []func(account okexapi.Account)
-	orderDetailsEventCallbacks []func(orderDetails []okexapi.OrderDetails)
+	candleEventCallbacks          []func(candle Candle)
+	bookEventCallbacks            []func(book BookEvent)
+	eventCallbacks                []func(event WebSocketEvent)
+	accountEventCallbacks         []func(account okexapi.Account)
+	orderDetailsEventCallbacks    []func(orderDetails []okexapi.OrderDetails)
+	positionDetailsEventCallbacks []func(positionDetails []okexapi.PositionDetails)
 
 	lastCandle map[CandleKey]Candle
 }
@@ -57,6 +58,7 @@ func NewStream(client *okexapi.RestClient) *Stream {
 	stream.OnBookEvent(stream.handleBookEvent)
 	stream.OnAccountEvent(stream.handleAccountEvent)
 	stream.OnOrderDetailsEvent(stream.handleOrderDetailsEvent)
+	stream.OnPositionDetailsEvent(stream.handlePositionDetailsEvent)
 	stream.OnEvent(stream.handleEvent)
 	stream.OnConnect(stream.handleConnect)
 	return stream
@@ -122,6 +124,8 @@ func (s *Stream) handleEvent(event WebSocketEvent) {
 				{Channel: "account"},
 				{Channel: "orders", InstrumentType: string(okexapi.InstrumentTypeSpot)},
 				{Channel: "orders", InstrumentType: string(okexapi.InstrumentTypeMargin)},
+				{Channel: "positions", InstrumentType: string(okexapi.InstrumentTypeSpot)},
+				{Channel: "positions", InstrumentType: string(okexapi.InstrumentTypeMargin)},
 			}
 
 			log.Infof("subscribing private channels: %+v", subs)
@@ -155,6 +159,17 @@ func (s *Stream) handleOrderDetailsEvent(orderDetails []okexapi.OrderDetails) {
 	} else {
 		for _, order := range orders {
 			s.EmitOrderUpdate(order)
+		}
+	}
+}
+
+func (s *Stream) handlePositionDetailsEvent(positionDetails []okexapi.PositionDetails) {
+	positions, err := toGlobalPositions(positionDetails)
+	if err != nil {
+		log.WithError(err).Errorf("error converting position details into positions")
+	} else {
+		for _, position := range positions {
+			s.EmitPositionUpdate(position)
 		}
 	}
 }
@@ -219,5 +234,8 @@ func (s *Stream) dispatchEvent(e interface{}) {
 
 	case []okexapi.OrderDetails:
 		s.EmitOrderDetailsEvent(et)
+
+	case []okexapi.PositionDetails:
+		s.EmitPositionDetailsEvent(et)
 	}
 }

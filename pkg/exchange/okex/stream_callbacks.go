@@ -56,6 +56,16 @@ func (s *Stream) EmitOrderDetailsEvent(orderDetails []okexapi.OrderDetails) {
 	}
 }
 
+func (s *Stream) OnPositionDetailsEvent(cb func(positionDetails []okexapi.PositionDetails)) {
+	s.positionDetailsEventCallbacks = append(s.positionDetailsEventCallbacks, cb)
+}
+
+func (s *Stream) EmitPositionDetailsEvent(positionDetails []okexapi.PositionDetails) {
+	for _, cb := range s.positionDetailsEventCallbacks {
+		cb(positionDetails)
+	}
+}
+
 type StreamEventHub interface {
 	OnCandleEvent(cb func(candle Candle))
 
@@ -66,4 +76,6 @@ type StreamEventHub interface {
 	OnAccountEvent(cb func(account okexapi.Account))
 
 	OnOrderDetailsEvent(cb func(orderDetails []okexapi.OrderDetails))
+	
+	OnPositionDetailsEvent(cb func(positionDetails []okexapi.PositionDetails)) 
 }

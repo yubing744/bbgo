@@ -295,3 +295,10 @@ func toLocalInterval(src string) string {
 		return strings.ToUpper(w)
 	})
 }
+
+func toGlobalPositions(positionDetails []okexapi.PositionDetails) ([]types.Position, error) {
+	log.WithField("positionDetails", positionDetails).Debug("toGlobalPositions")
+
+	// TODO convert position
+	return []types.Position{}, nil
+}
