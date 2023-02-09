@@ -171,11 +171,6 @@ func toGlobalTrades(orderDetails []okexapi.OrderDetails) ([]types.Trade, error) 
 		})
 	}
 
-	log.
-		WithField("orders", orderDetails).
-		WithField("trades", trades).
-		Debug("toGlobalTrades")
-
 	return trades, nil
 }
 

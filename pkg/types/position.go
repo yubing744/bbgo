@@ -232,40 +232,48 @@ func (p *Position) EmitModify(baseQty fixedpoint.Value, quoteQty fixedpoint.Valu
 }
 
 func (p *Position) Update(pos PositionInfo) error {
-	p.Base = pos.Base
-	p.Quote = pos.Quote
-	p.AverageCost = pos.AverageCost
-	p.TradeID = pos.TradeID
-	p.ChangedAt = pos.ChangedAt
+	if p.Base.Compare(pos.Base) != 0 ||
+		p.Quote.Compare(pos.Quote) != 0 ||
+		p.AverageCost.Compare(pos.AverageCost) != 0 ||
+		p.TradeID != pos.TradeID {
+		p.Base = pos.Base
+		p.Quote = pos.Quote
+		p.AverageCost = pos.AverageCost
+		p.TradeID = pos.TradeID
+		p.ChangedAt = pos.ChangedAt
 
-	p.EmitModify(p.Base, p.Quote, p.AverageCost)
+		p.EmitModify(p.Base, p.Quote, p.AverageCost)
+	}
 
 	return nil
 }
 
 // ModifyBase modifies position base quantity with `qty`
 func (p *Position) ModifyBase(qty fixedpoint.Value) error {
-	p.Base = qty
-
-	p.EmitModify(p.Base, p.Quote, p.AverageCost)
+	if p.Base.Compare(qty) != 0 {
+		p.Base = qty
+		p.EmitModify(p.Base, p.Quote, p.AverageCost)
+	}
 
 	return nil
 }
 
 // ModifyQuote modifies position quote quantity with `qty`
 func (p *Position) ModifyQuote(qty fixedpoint.Value) error {
-	p.Quote = qty
-
-	p.EmitModify(p.Base, p.Quote, p.AverageCost)
+	if p.Quote.Compare(qty) != 0 {
+		p.Quote = qty
+		p.EmitModify(p.Base, p.Quote, p.AverageCost)
+	}
 
 	return nil
 }
 
 // ModifyAverageCost modifies position average cost with `price`
 func (p *Position) ModifyAverageCost(price fixedpoint.Value) error {
-	p.AverageCost = price
-
-	p.EmitModify(p.Base, p.Quote, p.AverageCost)
+	if p.AverageCost.Compare(price) != 0 {
+		p.AverageCost = price
+		p.EmitModify(p.Base, p.Quote, p.AverageCost)
+	}
 
 	return nil
 }

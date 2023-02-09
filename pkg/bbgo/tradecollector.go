@@ -259,10 +259,7 @@ func (c *TradeCollector) updatePosition(pos types.PositionInfo) bool {
 		return false
 	}
 
-	log.WithField("position", pos).Debug("updatePosition")
-
 	c.position.Update(pos)
-
 	c.EmitPositionUpdate(c.position)
 
 	return true
