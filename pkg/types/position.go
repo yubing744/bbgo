@@ -231,7 +231,7 @@ func (p *Position) EmitModify(baseQty fixedpoint.Value, quoteQty fixedpoint.Valu
 	}
 }
 
-func (p *Position) Update(pos PositionInfo) error {
+func (p *Position) Update(pos PositionInfo) bool {
 	if p.Base.Compare(pos.Base) != 0 ||
 		p.Quote.Compare(pos.Quote) != 0 ||
 		p.AverageCost.Compare(pos.AverageCost) != 0 ||
@@ -243,9 +243,10 @@ func (p *Position) Update(pos PositionInfo) error {
 		p.ChangedAt = pos.ChangedAt
 
 		p.EmitModify(p.Base, p.Quote, p.AverageCost)
+		return true
 	}
 
-	return nil
+	return false
 }
 
 // ModifyBase modifies position base quantity with `qty`

@@ -259,8 +259,9 @@ func (c *TradeCollector) updatePosition(pos types.PositionInfo) bool {
 		return false
 	}
 
-	c.position.Update(pos)
-	c.EmitPositionUpdate(c.position)
+	if c.position.Update(pos) {
+		c.EmitPositionUpdate(c.position)
+	}
 
 	return true
 }
