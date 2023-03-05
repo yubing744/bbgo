@@ -314,6 +314,16 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 		orderReq.OrderType(orderType)
 	}
 
+	// Set stop loss
+	if order.StopPrice.Compare(fixedpoint.Zero) > 0 {
+		orderReq.StopLossPrice(order.StopPrice.FormatString(8))
+	}
+
+	// Set take profit
+	if order.TakePrice.Compare(fixedpoint.Zero) > 0 {
+		orderReq.TakeProfitPrice(order.TakePrice.FormatString(8))
+	}
+
 	orderHead, err := orderReq.Do(ctx)
 	if err != nil {
 		return nil, err

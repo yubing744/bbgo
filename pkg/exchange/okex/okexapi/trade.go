@@ -106,6 +106,20 @@ type PlaceOrderRequest struct {
 
 	// price
 	price *string `param:"px"`
+
+	// Take-profit trigger price
+	tpTriggerPx *string `param:"tpTriggerPx"`
+	// Take-profit order price
+	tpOrdPx *string `param:"tpOrdPx"`
+	// Take-profit trigger price type
+	tpTriggerPxType *string `param:"tpOrdPx"`
+
+	// Stop-loss trigger price
+	slTriggerPx *string `param:"slTriggerPx"`
+	// Stop-loss order price
+	slOrdPx *string `param:"slOrdPx"`
+	// Stop-loss trigger price type
+	slTriggerPxType *string `param:"slTriggerPxType"`
 }
 
 func (r *PlaceOrderRequest) Parameters() map[string]interface{} {

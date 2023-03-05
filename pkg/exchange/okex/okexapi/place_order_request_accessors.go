@@ -59,6 +59,16 @@ func (p *PlaceOrderRequest) Price(price string) *PlaceOrderRequest {
 	return p
 }
 
+func (p *PlaceOrderRequest) TakeProfitPrice(price string) *PlaceOrderRequest {
+	p.tpTriggerPx = &price
+	return p
+}
+
+func (p *PlaceOrderRequest) StopLossPrice(price string) *PlaceOrderRequest {
+	p.slTriggerPx = &price
+	return p
+}
+
 func (p *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 	var params = map[string]interface{}{}
 
@@ -149,6 +159,42 @@ func (p *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 
 		// assign parameter of price
 		params["px"] = price
+	}
+
+	// config Take-profit
+	if p.tpTriggerPx != nil {
+		tpTriggerPx := *p.tpTriggerPx
+		params["tpTriggerPx"] = tpTriggerPx
+
+		if p.tpOrdPx != nil {
+			params["tpOrdPx"] = *p.tpOrdPx
+		} else {
+			params["tpOrdPx"] = "-1"
+		}
+
+		if p.tpTriggerPxType!=nil {
+			params["tpTriggerPxType"] = *p.tpTriggerPxType
+		} else {
+			params["tpTriggerPxType"] = "last"
+		}
+	}
+
+	// config Stop-loss
+	if p.slTriggerPx != nil {
+		slTriggerPx := *p.slTriggerPx
+		params["slTriggerPx"] = slTriggerPx
+
+		if p.slOrdPx != nil {
+			params["slOrdPx"] = *p.slOrdPx
+		} else {
+			params["slOrdPx"] = "-1"
+		}
+
+		if p.slTriggerPxType!=nil {
+			params["slTriggerPxType"] = *p.slTriggerPxType
+		} else {
+			params["slTriggerPxType"] = "last"
+		}
 	}
 
 	return params, nil
