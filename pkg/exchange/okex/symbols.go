@@ -513,4 +513,9 @@ var spotSymbolMap = map[string]string{
 	"ZRXETH":      "ZRX-ETH",
 	"ZRXUSDT":     "ZRX-USDT",
 	"ZYROUSDT":    "ZYRO-USDT",
+	"OPUSDT":      "OP-USDT",
+	"WLDUSDT":     "WLD-USDT",
+	"PEPEUSDT":    "PEPE-USDT",
+	"TIAUSDT":     "TIA-USDT",
+	"JUPUSDT":     "JUP-USDT",
 }
