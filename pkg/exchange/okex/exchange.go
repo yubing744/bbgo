@@ -407,11 +407,11 @@ func (e *Exchange) QueryKLines(
 	req.Bar(intervalParam)
 
 	if options.StartTime != nil {
-		req.After(*options.StartTime)
+		req.Before(*options.StartTime)
 	}
 
 	if options.EndTime != nil {
-		req.Before(*options.EndTime)
+		req.After(*options.EndTime)
 	}
 
 	candles, err := req.Do(ctx)
