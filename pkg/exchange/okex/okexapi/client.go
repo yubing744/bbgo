@@ -54,7 +54,6 @@ const (
 	InstrumentTypeSwap    InstrumentType = "SWAP"
 	InstrumentTypeFutures InstrumentType = "FUTURES"
 	InstrumentTypeOption  InstrumentType = "OPTION"
-	InstrumentTypeMARGIN  InstrumentType = "MARGIN"
 	InstrumentTypeAny     InstrumentType = "ANY"
 )
 

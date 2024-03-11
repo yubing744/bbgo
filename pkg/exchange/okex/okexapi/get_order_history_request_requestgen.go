@@ -76,7 +76,7 @@ func (g *GetOrderHistoryRequest) GetQueryParameters() (url.Values, error) {
 
 	// TEMPLATE check-valid-values
 	switch instrumentType {
-	case InstrumentTypeSpot, InstrumentTypeSwap, InstrumentTypeFutures, InstrumentTypeOption, InstrumentTypeMARGIN:
+	case InstrumentTypeSpot, InstrumentTypeMargin, InstrumentTypeSwap, InstrumentTypeFutures, InstrumentTypeOption, InstrumentTypeAny:
 		params["instType"] = instrumentType
 
 	default:
@@ -323,14 +323,12 @@ func (g *GetOrderHistoryRequest) Do(ctx context.Context) ([]OrderDetail, error) 
 	type responseValidator interface {
 		Validate() error
 	}
-
 	validator, ok := interface{}(apiResponse).(responseValidator)
 	if ok {
 		if err := validator.Validate(); err != nil {
 			return nil, err
 		}
 	}
-
 	var data []OrderDetail
 	if err := json.Unmarshal(apiResponse.Data, &data); err != nil {
 		return nil, err

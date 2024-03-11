@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/valyala/fastjson"
 
 	"github.com/c9s/bbgo/pkg/exchange/okex/okexapi"
@@ -208,6 +209,124 @@ type PriceVolumeOrder struct {
 	NumOrders int
 }
 
+type BookEntry struct {
+	Price         fixedpoint.Value
+	Volume        fixedpoint.Value
+	NumLiquidated int
+	NumOrders     int
+}
+
+func parseBookEntry(v *fastjson.Value) (*BookEntry, error) {
+	arr, err := v.Array()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(arr) < 4 {
+		return nil, fmt.Errorf("unexpected book entry size: %d", len(arr))
+	}
+
+	price := fixedpoint.Must(fixedpoint.NewFromString(string(arr[0].GetStringBytes())))
+	volume := fixedpoint.Must(fixedpoint.NewFromString(string(arr[1].GetStringBytes())))
+	numLiquidated, err := strconv.Atoi(string(arr[2].GetStringBytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	numOrders, err := strconv.Atoi(string(arr[3].GetStringBytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	return &BookEntry{
+		Price:         price,
+		Volume:        volume,
+		NumLiquidated: numLiquidated,
+		NumOrders:     numOrders,
+	}, nil
+}
+
+func parseBookData(v *fastjson.Value) (*BookEvent, error) {
+	instrumentId := string(v.GetStringBytes("arg", "instId"))
+	data := v.GetArray("data")
+	if len(data) == 0 {
+		return nil, errors.New("empty data payload")
+	}
+
+	// "snapshot" or "update"
+	action := string(v.GetStringBytes("action"))
+
+	//millisecondTimestamp, err := strconv.ParseInt(string(data[0].GetStringBytes("ts")), 10, 64)
+	//if err != nil {
+	//	return nil, errors.Wrap(err, "parseBookData")
+	//}
+
+	checksum := data[0].GetInt("checksum")
+
+	var asks []BookEntry
+	var bids []BookEntry
+
+	for _, v := range data[0].GetArray("asks") {
+		entry, err := parseBookEntry(v)
+		if err != nil {
+			return nil, err
+		}
+		asks = append(asks, *entry)
+	}
+
+	for _, v := range data[0].GetArray("bids") {
+		entry, err := parseBookEntry(v)
+		if err != nil {
+			return nil, err
+		}
+		bids = append(bids, *entry)
+	}
+
+	return &BookEvent{
+		InstrumentID: instrumentId,
+		Symbol:       toGlobalSymbol(instrumentId),
+		Action:       ActionType(action),
+		Data: []struct {
+			Bids                 PriceVolumeOrderSlice      `json:"bids"`
+			Asks                 PriceVolumeOrderSlice      `json:"asks"`
+			MillisecondTimestamp types.MillisecondTimestamp `json:"ts"`
+			Checksum             int                        `json:"checksum"`
+		}{
+			{
+				//Bids:                 bids,
+				//Asks:                 asks,
+				Checksum: checksum,
+				//MillisecondTimestamp: millisecondTimestamp,
+			},
+		},
+	}, nil
+}
+
+type Candle struct {
+	Channel      string
+	InstrumentID string
+	Symbol       string
+	Interval     string
+	Open         fixedpoint.Value
+	High         fixedpoint.Value
+	Low          fixedpoint.Value
+	Close        fixedpoint.Value
+
+	// Trading volume, with a unit of contact.
+	// If it is a derivatives contract, the value is the number of contracts.
+	// If it is SPOT/MARGIN, the value is the amount of trading currency.
+	Volume fixedpoint.Value
+
+	// Trading volume, with a unit of currency.
+	// If it is a derivatives contract, the value is the number of settlement currency.
+	// If it is SPOT/MARGIN, the value is the number of quote currency.
+	VolumeInCurrency fixedpoint.Value
+
+	MillisecondTimestamp int64
+
+	StartTime time.Time
+}
+
 func (c *Candle) KLine() types.KLine {
 	interval := types.Interval(c.Interval)
 	endTime := c.StartTime.Add(interval.Duration() - 1*time.Millisecond)
@@ -224,6 +343,80 @@ func (c *Candle) KLine() types.KLine {
 		StartTime:   types.Time(c.StartTime),
 		EndTime:     types.Time(endTime),
 	}
+}
+
+func parseCandle(channel string, v *fastjson.Value) (*Candle, error) {
+	instrumentID := string(v.GetStringBytes("arg", "instId"))
+	data, err := v.Get("data").Array()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(data) == 0 {
+		return nil, errors.New("candle data is empty")
+	}
+
+	arr, err := data[0].Array()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(arr) < 7 {
+		return nil, fmt.Errorf("unexpected candle data length: %d", len(arr))
+	}
+
+	interval := strings.ToLower(strings.TrimPrefix(channel, "candle"))
+
+	timestamp, err := strconv.ParseInt(string(arr[0].GetStringBytes()), 10, 64)
+	if err != nil {
+		return nil, errors.Wrap(err, "parseCandle")
+	}
+
+	open, err := fixedpoint.NewFromString(string(arr[1].GetStringBytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	high, err := fixedpoint.NewFromString(string(arr[2].GetStringBytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	low, err := fixedpoint.NewFromString(string(arr[3].GetStringBytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	cls, err := fixedpoint.NewFromString(string(arr[4].GetStringBytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	vol, err := fixedpoint.NewFromString(string(arr[5].GetStringBytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	volCurrency, err := fixedpoint.NewFromString(string(arr[6].GetStringBytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	candleTime := time.Unix(0, timestamp*int64(time.Millisecond))
+	return &Candle{
+		Channel:              channel,
+		InstrumentID:         instrumentID,
+		Symbol:               toGlobalSymbol(instrumentID),
+		Interval:             interval,
+		Open:                 open,
+		High:                 high,
+		Low:                  low,
+		Close:                cls,
+		Volume:               vol,
+		VolumeInCurrency:     volCurrency,
+		MillisecondTimestamp: timestamp,
+		StartTime:            candleTime,
+	}, nil
 }
 
 type PriceVolumeOrderSlice []PriceVolumeOrder
@@ -389,21 +582,38 @@ func parseData(v *fastjson.Value) (interface{}, error) {
 	switch channel {
 	case "books5":
 		data, err := parseBookData(v)
-		data.channel = channel
+		data.channel = Channel(channel)
 		return data, err
 	case "books":
 		data, err := parseBookData(v)
-		data.channel = channel
+		data.channel = Channel(channel)
 		return data, err
 	case "account":
-		return parseAccount(v)
+		return parseAccount(v.GetStringBytes())
 	case "orders":
 		return parseOrder(v)
 	case "positions":
 		return parsePosition(v)
 	default:
-		return types.SideType(side), fmt.Errorf("unexpected side: %s", side)
+		if strings.HasPrefix(channel, "candle") {
+			data, err := parseCandle(channel, v)
+			return data, err
+		}
 	}
+
+	return nil, nil
+}
+
+func parseOrder(v *fastjson.Value) ([]okexapi.OrderDetails, error) {
+	data := v.Get("data").MarshalTo(nil)
+
+	var orderDetails []okexapi.OrderDetails
+	err := json.Unmarshal(data, &orderDetails)
+	if err != nil {
+		return nil, err
+	}
+
+	return orderDetails, nil
 }
 
 func toGlobalSideType(side okexapi.SideType) (types.SideType, error) {

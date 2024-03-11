@@ -346,10 +346,10 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 	orderReq.Side(toLocalSideType(order.Side))
 
 	if order.Market.Symbol != "" {
-		orderReq.Quantity(order.Market.FormatQuantity(order.Quantity))
+		orderReq.Size(order.Market.FormatQuantity(order.Quantity))
 	} else {
 		// TODO report error
-		orderReq.Quantity(order.Quantity.FormatString(8))
+		orderReq.Size(order.Quantity.FormatString(8))
 	}
 
 	// set price field for limit orders
@@ -372,45 +372,35 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 		orderReq.OrderType(orderType)
 	}
 
-	// Set stop loss
+	// Set stop loss trigger price
 	if order.StopPrice.Compare(fixedpoint.Zero) > 0 {
-		orderReq.StopLossPrice(order.StopPrice.FormatString(8))
+		orderReq.StopLossTriggerPx(order.StopPrice.FormatString(8))
 	}
 
-	// Set take profit
+	// Set take profit trigger price
 	if order.TakePrice.Compare(fixedpoint.Zero) > 0 {
-		orderReq.TakeProfitPrice(order.TakePrice.FormatString(8))
+		orderReq.TakeProfitTriggerPx(order.TakePrice.FormatString(8))
 	}
 
-	orderHead, err := orderReq.Do(ctx)
+	orders, err := orderReq.Do(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	log.WithField("orderHead", orderHead).
-		Debug("order req result")
-
-	if orderHead.Code != "0" {
-		return nil, errors.New(orderHead.Message)
+	if len(orders) != 1 {
+		return nil, fmt.Errorf("unexpected length of order response: %v", orders)
 	}
 
-	orderID, err := strconv.ParseInt(orderHead.OrderID, 10, 64)
+	orderRes, err := e.QueryOrder(ctx, types.OrderQuery{
+		Symbol:        order.Symbol,
+		OrderID:       orders[0].OrderID,
+		ClientOrderID: orders[0].ClientOrderID,
+	})
 	if err != nil {
-		return nil, errors.Wrap(err, "okex exchange submit order parse orderHead.OrderID")
+		return nil, fmt.Errorf("failed to query order by id: %s, clientOrderId: %s, err: %w", orders[0].OrderID, orders[0].ClientOrderID, err)
 	}
 
-	return &types.Order{
-		SubmitOrder:      order,
-		Exchange:         types.ExchangeOKEx,
-		OrderID:          uint64(orderID),
-		Status:           types.OrderStatusNew,
-		ExecutedQuantity: fixedpoint.Zero,
-		IsWorking:        true,
-		CreationTime:     types.Time(time.Now()),
-		UpdateTime:       types.Time(time.Now()),
-		IsMargin:         false,
-		IsIsolated:       false,
-	}, nil
+	return orderRes, nil
 }
 
 func (e *Exchange) submitClosePositionOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {

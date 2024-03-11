@@ -1,5 +1,7 @@
 package okexapi
 
+import "github.com/c9s/requestgen"
+
 type TradeMode string
 
 const (
@@ -28,7 +30,7 @@ type OrderResponse struct {
 
 //go:generate PostRequest -url "/api/v5/trade/order" -type PlaceOrderRequest -responseDataType []OrderResponse
 type PlaceOrderRequest struct {
-	client *RestClient
+	client requestgen.AuthenticatedAPIClient
 
 	instrumentID string `param:"instId"`
 
@@ -58,24 +60,30 @@ type PlaceOrderRequest struct {
 
 	orderType OrderType `param:"ordType"`
 
-	quantity string `param:"sz"`
+	size string `param:"sz"`
 
 	// price
 	price *string `param:"px"`
 
 	// Take-profit trigger price
-	tpTriggerPx *string `param:"tpTriggerPx"`
+	takeProfitTriggerPx *string `param:"tpTriggerPx"`
 	// Take-profit order price
-	tpOrdPx *string `param:"tpOrdPx"`
+	takeProfitOrdPx *string `param:"tpOrdPx"`
 	// Take-profit trigger price type
-	tpTriggerPxType *string `param:"tpOrdPx"`
+	takeProfitTriggerPxType *string `param:"tpOrdPx"`
 
 	// Stop-loss trigger price
-	slTriggerPx *string `param:"slTriggerPx"`
+	stopLossTriggerPx *string `param:"slTriggerPx"`
 	// Stop-loss order price
-	slOrdPx *string `param:"slOrdPx"`
+	stopLossOrdPx *string `param:"slOrdPx"`
 	// Stop-loss trigger price type
-	slTriggerPxType *string `param:"slTriggerPxType"`
+	stopLossTriggerPxType *string `param:"slTriggerPxType"`
+
+	// Whether the target currency uses the quote or base currency.
+	// base_ccy: Base currency ,quote_ccy: Quote currency
+	// Only applicable to SPOT Market Orders
+	// Default is quote_ccy for buy, base_ccy for sell
+	targetCurrency *TargetCurrency `param:"tgtCcy" validValues:"quote_ccy,base_ccy"`
 }
 
 func (c *RestClient) NewPlaceOrderRequest() *PlaceOrderRequest {
