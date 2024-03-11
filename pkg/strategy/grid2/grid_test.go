@@ -1,5 +1,3 @@
-//go:build !dnum
-
 package grid2
 
 import (
@@ -172,33 +170,34 @@ func Test_calculateArithmeticPins(t *testing.T) {
 				Pin(number(1000.0)),
 				Pin(number(1066.660)),
 				Pin(number(1133.330)),
-				Pin(number("1199.99")),
+				Pin(number("1200.00")),
 				Pin(number(1266.660)),
 				Pin(number(1333.330)),
-				Pin(number(1399.990)),
+				Pin(number(1400.000)),
 				Pin(number(1466.660)),
 				Pin(number(1533.330)),
-				Pin(number(1599.990)),
+				Pin(number(1600.000)),
 				Pin(number(1666.660)),
 				Pin(number(1733.330)),
-				Pin(number(1799.990)),
+				Pin(number(1800.000)),
 				Pin(number(1866.660)),
 				Pin(number(1933.330)),
-				Pin(number(1999.990)),
+				Pin(number(2000.000)),
 				Pin(number(2066.660)),
 				Pin(number(2133.330)),
-				Pin(number("2199.99")),
+				Pin(number("2200.00")),
 				Pin(number(2266.660)),
 				Pin(number(2333.330)),
-				Pin(number("2399.99")),
+				Pin(number("2400.00")),
 				Pin(number(2466.660)),
 				Pin(number(2533.330)),
-				Pin(number("2599.99")),
+				Pin(number("2600.00")),
 				Pin(number(2666.660)),
 				Pin(number(2733.330)),
-				Pin(number(2799.990)),
+				Pin(number(2800.000)),
 				Pin(number(2866.660)),
 				Pin(number(2933.330)),
+				Pin(number("3000.00")),
 			},
 		},
 	}
@@ -214,4 +213,55 @@ func Test_calculateArithmeticPins(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_filterPrice1(t *testing.T) {
+	type args struct {
+		p    fixedpoint.Value
+		prec int
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "basic",
+			args: args{p: number("31.2222"), prec: 3},
+			want: "31.222",
+		},
+		{
+			name: "roundup",
+			args: args{p: number("31.22295"), prec: 3},
+			want: "31.223",
+		},
+		{
+			name: "roundup2",
+			args: args{p: number("31.22290"), prec: 3},
+			want: "31.222",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rst := roundAndTruncatePrice(tt.args.p, tt.args.prec)
+			assert.Equalf(t, tt.want, rst.String(), "roundAndTruncatePrice(%v, %v)", tt.args.p, tt.args.prec)
+		})
+	}
+}
+
+func Test_removeDuplicatedPins(t *testing.T) {
+	pins := []Pin{
+		Pin(number("31.222")),
+		Pin(number("31.222")),
+		Pin(number("31.223")),
+		Pin(number("31.224")),
+		Pin(number("31.224")),
+	}
+	out := removeDuplicatedPins(pins)
+	assert.Equal(t, []Pin{
+		Pin(number("31.222")),
+		Pin(number("31.223")),
+		Pin(number("31.224")),
+	}, out)
+
 }

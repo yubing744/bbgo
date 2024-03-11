@@ -42,6 +42,9 @@ type TrailingStop2 struct {
 }
 
 func (s *TrailingStop2) Subscribe(session *ExchangeSession) {
+	if s.Interval == "" {
+		s.Interval = types.Interval1m
+	}
 	// use 1m kline to handle roi stop
 	session.Subscribe(types.KLineChannel, s.Symbol, types.SubscribeOptions{Interval: s.Interval})
 }
@@ -52,22 +55,21 @@ func (s *TrailingStop2) Bind(session *ExchangeSession, orderExecutor *GeneralOrd
 	s.latestHigh = fixedpoint.Zero
 
 	position := orderExecutor.Position()
-	session.MarketDataStream.OnKLineClosed(types.KLineWith(s.Symbol, s.Interval, func(kline types.KLine) {
+	f := func(kline types.KLine) {
 		if err := s.checkStopPrice(kline.Close, position); err != nil {
 			log.WithError(err).Errorf("error")
 		}
-	}))
+	}
+
+	session.MarketDataStream.OnKLineClosed(types.KLineWith(s.Symbol, s.Interval, f))
+	session.MarketDataStream.OnKLine(types.KLineWith(s.Symbol, s.Interval, f))
 
 	if !IsBackTesting && enableMarketTradeStop {
-		session.MarketDataStream.OnMarketTrade(func(trade types.Trade) {
-			if trade.Symbol != position.Symbol {
-				return
-			}
-
+		session.MarketDataStream.OnMarketTrade(types.TradeWith(position.Symbol, func(trade types.Trade) {
 			if err := s.checkStopPrice(trade.Price, position); err != nil {
 				log.WithError(err).Errorf("error")
 			}
-		})
+		}))
 	}
 }
 
@@ -78,8 +80,10 @@ func (s *TrailingStop2) getRatio(price fixedpoint.Value, position *types.Positio
 		// for short position, it's:
 		//  (avg_cost - price) / avg_cost
 		return position.AverageCost.Sub(price).Div(position.AverageCost), nil
+
 	case types.SideTypeSell:
 		return price.Sub(position.AverageCost).Div(position.AverageCost), nil
+
 	default:
 		if position.IsLong() {
 			return price.Sub(position.AverageCost).Div(position.AverageCost), nil
@@ -92,7 +96,7 @@ func (s *TrailingStop2) getRatio(price fixedpoint.Value, position *types.Positio
 }
 
 func (s *TrailingStop2) checkStopPrice(price fixedpoint.Value, position *types.Position) error {
-	if position.IsClosed() || position.IsDust(price) {
+	if position.IsClosed() || position.IsDust(price) || position.IsClosing() {
 		return nil
 	}
 
@@ -100,7 +104,7 @@ func (s *TrailingStop2) checkStopPrice(price fixedpoint.Value, position *types.P
 		// check if we have the minimal profit
 		roi := position.ROI(price)
 		if roi.Compare(s.MinProfit) >= 0 {
-			Notify("[trailingStop] activated: ROI %f > minimal profit ratio %f", roi.Float64(), s.MinProfit.Float64())
+			Notify("[trailingStop] activated: %s ROI %s > minimal profit ratio %s", s.Symbol, roi.Percentage(), s.MinProfit.Percentage())
 			s.activated = true
 		}
 	} else if !s.ActivationRatio.IsZero() {
@@ -174,12 +178,15 @@ func (s *TrailingStop2) triggerStop(price fixedpoint.Value) error {
 		s.activated = false
 		s.latestHigh = fixedpoint.Zero
 	}()
-	Notify("[TrailingStop] %s stop loss triggered. price: %f callback rate: %f", s.Symbol, price.Float64(), s.CallbackRate.Float64())
+
+	Notify("[TrailingStop] %s %s tailingStop is triggered. price: %f callbackRate: %s", s.Symbol, s.ActivationRatio.Percentage(), price.Float64(), s.CallbackRate.Percentage())
 	ctx := context.Background()
 	p := fixedpoint.One
 	if !s.ClosePosition.IsZero() {
 		p = s.ClosePosition
 	}
 
-	return s.orderExecutor.ClosePosition(ctx, p, "trailingStop")
+	tagName := fmt.Sprintf("trailingStop:activation=%s,callback=%s", s.ActivationRatio.Percentage(), s.CallbackRate.Percentage())
+
+	return s.orderExecutor.ClosePosition(ctx, p, tagName)
 }

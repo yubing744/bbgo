@@ -34,16 +34,6 @@ func (s *Stream) EmitKLineClosedEvent(e *KLineEvent) {
 	}
 }
 
-func (s *Stream) OnMarkPriceUpdateEvent(cb func(e *MarkPriceUpdateEvent)) {
-	s.markPriceUpdateEventCallbacks = append(s.markPriceUpdateEventCallbacks, cb)
-}
-
-func (s *Stream) EmitMarkPriceUpdateEvent(e *MarkPriceUpdateEvent) {
-	for _, cb := range s.markPriceUpdateEventCallbacks {
-		cb(e)
-	}
-}
-
 func (s *Stream) OnMarketTradeEvent(cb func(e *MarketTradeEvent)) {
 	s.marketTradeEventCallbacks = append(s.marketTradeEventCallbacks, cb)
 }
@@ -64,22 +54,12 @@ func (s *Stream) EmitAggTradeEvent(e *AggTradeEvent) {
 	}
 }
 
-func (s *Stream) OnContinuousKLineEvent(cb func(e *ContinuousKLineEvent)) {
-	s.continuousKLineEventCallbacks = append(s.continuousKLineEventCallbacks, cb)
+func (s *Stream) OnForceOrderEvent(cb func(e *ForceOrderEvent)) {
+	s.forceOrderEventCallbacks = append(s.forceOrderEventCallbacks, cb)
 }
 
-func (s *Stream) EmitContinuousKLineEvent(e *ContinuousKLineEvent) {
-	for _, cb := range s.continuousKLineEventCallbacks {
-		cb(e)
-	}
-}
-
-func (s *Stream) OnContinuousKLineClosedEvent(cb func(e *ContinuousKLineEvent)) {
-	s.continuousKLineClosedEventCallbacks = append(s.continuousKLineClosedEventCallbacks, cb)
-}
-
-func (s *Stream) EmitContinuousKLineClosedEvent(e *ContinuousKLineEvent) {
-	for _, cb := range s.continuousKLineClosedEventCallbacks {
+func (s *Stream) EmitForceOrderEvent(e *ForceOrderEvent) {
+	for _, cb := range s.forceOrderEventCallbacks {
 		cb(e)
 	}
 }
@@ -134,6 +114,36 @@ func (s *Stream) EmitBookTickerEvent(event *BookTickerEvent) {
 	}
 }
 
+func (s *Stream) OnMarkPriceUpdateEvent(cb func(e *MarkPriceUpdateEvent)) {
+	s.markPriceUpdateEventCallbacks = append(s.markPriceUpdateEventCallbacks, cb)
+}
+
+func (s *Stream) EmitMarkPriceUpdateEvent(e *MarkPriceUpdateEvent) {
+	for _, cb := range s.markPriceUpdateEventCallbacks {
+		cb(e)
+	}
+}
+
+func (s *Stream) OnContinuousKLineEvent(cb func(e *ContinuousKLineEvent)) {
+	s.continuousKLineEventCallbacks = append(s.continuousKLineEventCallbacks, cb)
+}
+
+func (s *Stream) EmitContinuousKLineEvent(e *ContinuousKLineEvent) {
+	for _, cb := range s.continuousKLineEventCallbacks {
+		cb(e)
+	}
+}
+
+func (s *Stream) OnContinuousKLineClosedEvent(cb func(e *ContinuousKLineEvent)) {
+	s.continuousKLineClosedEventCallbacks = append(s.continuousKLineClosedEventCallbacks, cb)
+}
+
+func (s *Stream) EmitContinuousKLineClosedEvent(e *ContinuousKLineEvent) {
+	for _, cb := range s.continuousKLineClosedEventCallbacks {
+		cb(e)
+	}
+}
+
 func (s *Stream) OnOrderTradeUpdateEvent(cb func(e *OrderTradeUpdateEvent)) {
 	s.orderTradeUpdateEventCallbacks = append(s.orderTradeUpdateEventCallbacks, cb)
 }
@@ -164,6 +174,16 @@ func (s *Stream) EmitAccountConfigUpdateEvent(e *AccountConfigUpdateEvent) {
 	}
 }
 
+func (s *Stream) OnMarginCallEvent(cb func(e *MarginCallEvent)) {
+	s.marginCallEventCallbacks = append(s.marginCallEventCallbacks, cb)
+}
+
+func (s *Stream) EmitMarginCallEvent(e *MarginCallEvent) {
+	for _, cb := range s.marginCallEventCallbacks {
+		cb(e)
+	}
+}
+
 func (s *Stream) OnListenKeyExpired(cb func(e *ListenKeyExpired)) {
 	s.listenKeyExpiredCallbacks = append(s.listenKeyExpiredCallbacks, cb)
 }
@@ -181,15 +201,11 @@ type StreamEventHub interface {
 
 	OnKLineClosedEvent(cb func(e *KLineEvent))
 
-	OnMarkPriceUpdateEvent(cb func(e *MarkPriceUpdateEvent))
-
 	OnMarketTradeEvent(cb func(e *MarketTradeEvent))
 
 	OnAggTradeEvent(cb func(e *AggTradeEvent))
 
-	OnContinuousKLineEvent(cb func(e *ContinuousKLineEvent))
-
-	OnContinuousKLineClosedEvent(cb func(e *ContinuousKLineEvent))
+	OnForceOrderEvent(cb func(e *ForceOrderEvent))
 
 	OnBalanceUpdateEvent(cb func(event *BalanceUpdateEvent))
 
@@ -201,11 +217,19 @@ type StreamEventHub interface {
 
 	OnBookTickerEvent(cb func(event *BookTickerEvent))
 
+	OnMarkPriceUpdateEvent(cb func(e *MarkPriceUpdateEvent))
+
+	OnContinuousKLineEvent(cb func(e *ContinuousKLineEvent))
+
+	OnContinuousKLineClosedEvent(cb func(e *ContinuousKLineEvent))
+
 	OnOrderTradeUpdateEvent(cb func(e *OrderTradeUpdateEvent))
 
 	OnAccountUpdateEvent(cb func(e *AccountUpdateEvent))
 
 	OnAccountConfigUpdateEvent(cb func(e *AccountConfigUpdateEvent))
+
+	OnMarginCallEvent(cb func(e *MarginCallEvent))
 
 	OnListenKeyExpired(cb func(e *ListenKeyExpired))
 }

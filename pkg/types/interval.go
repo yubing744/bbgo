@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -80,6 +81,12 @@ func (i Interval) String() string {
 
 type IntervalSlice []Interval
 
+func (s IntervalSlice) Sort() {
+	sort.Slice(s, func(i, j int) bool {
+		return s[i].Duration() < s[j].Duration()
+	})
+}
+
 func (s IntervalSlice) StringSlice() (slice []string) {
 	for _, interval := range s {
 		slice = append(slice, `"`+interval.String()+`"`)
@@ -87,7 +94,6 @@ func (s IntervalSlice) StringSlice() (slice []string) {
 	return slice
 }
 
-var Interval1ms = Interval("1ms")
 var Interval1s = Interval("1s")
 var Interval1m = Interval("1m")
 var Interval3m = Interval("3m")
@@ -135,7 +141,17 @@ func ParseInterval(input Interval) int {
 	return t
 }
 
-var SupportedIntervals = map[Interval]int{
+type IntervalMap map[Interval]int
+
+func (m IntervalMap) Slice() (slice IntervalSlice) {
+	for interval := range m {
+		slice = append(slice, interval)
+	}
+
+	return slice
+}
+
+var SupportedIntervals = IntervalMap{
 	Interval1s:  1,
 	Interval1m:  1 * 60,
 	Interval3m:  3 * 60,
@@ -163,7 +179,7 @@ type IntervalWindow struct {
 	Window int `json:"window"`
 
 	// RightWindow is used by the pivot indicator
-	RightWindow int `json:"rightWindow"`
+	RightWindow *int `json:"rightWindow"`
 }
 
 type IntervalWindowBandWidth struct {

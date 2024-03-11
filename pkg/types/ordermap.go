@@ -3,10 +3,20 @@ package types
 import (
 	"sync"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // OrderMap is used for storing orders by their order id
 type OrderMap map[uint64]Order
+
+func NewOrderMap(os ...Order) OrderMap {
+	m := OrderMap{}
+	if len(os) > 0 {
+		m.Add(os...)
+	}
+	return m
+}
 
 func (m OrderMap) Backup() (orderForms []SubmitOrder) {
 	for _, order := range m {
@@ -17,8 +27,10 @@ func (m OrderMap) Backup() (orderForms []SubmitOrder) {
 }
 
 // Add the order the the map
-func (m OrderMap) Add(o Order) {
-	m[o.OrderID] = o
+func (m OrderMap) Add(os ...Order) {
+	for _, o := range os {
+		m[o.OrderID] = o
+	}
 }
 
 // Update only updates the order when the order ID exists in the map
@@ -54,6 +66,11 @@ func (m OrderMap) IDs() (ids []uint64) {
 func (m OrderMap) Exists(orderID uint64) bool {
 	_, ok := m[orderID]
 	return ok
+}
+
+func (m OrderMap) Get(orderID uint64) (Order, bool) {
+	order, ok := m[orderID]
+	return order, ok
 }
 
 func (m OrderMap) FindByStatus(status OrderStatus) (orders OrderSlice) {
@@ -120,26 +137,34 @@ func (m *SyncOrderMap) Remove(orderID uint64) (exists bool) {
 	return exists
 }
 
-func (m *SyncOrderMap) Add(o Order) {
+func (m *SyncOrderMap) processPendingRemoval() {
 	m.Lock()
 	defer m.Unlock()
 
-	m.orders.Add(o)
+	if len(m.pendingRemoval) == 0 {
+		return
+	}
 
-	if len(m.pendingRemoval) > 0 {
-		expireTime := time.Now().Add(-5 * time.Minute)
-		removing := make(map[uint64]struct{})
-		for orderID, creationTime := range m.pendingRemoval {
-			if m.orders.Exists(orderID) || creationTime.Before(expireTime) {
-				m.orders.Remove(orderID)
-				removing[orderID] = struct{}{}
-			}
-		}
-
-		for orderID := range removing {
-			delete(m.pendingRemoval, orderID)
+	expireTime := time.Now().Add(-5 * time.Minute)
+	removing := make(map[uint64]struct{})
+	for orderID, creationTime := range m.pendingRemoval {
+		if m.orders.Exists(orderID) || creationTime.Before(expireTime) {
+			m.orders.Remove(orderID)
+			removing[orderID] = struct{}{}
 		}
 	}
+
+	for orderID := range removing {
+		delete(m.pendingRemoval, orderID)
+	}
+}
+
+func (m *SyncOrderMap) Add(o Order) {
+	m.Lock()
+	m.orders.Add(o)
+	m.Unlock()
+
+	m.processPendingRemoval()
 }
 
 func (m *SyncOrderMap) Update(o Order) {
@@ -163,6 +188,13 @@ func (m *SyncOrderMap) Exists(orderID uint64) (exists bool) {
 	exists = m.orders.Exists(orderID)
 	m.Unlock()
 	return exists
+}
+
+func (m *SyncOrderMap) Get(orderID uint64) (Order, bool) {
+	m.Lock()
+	order, ok := m.orders.Get(orderID)
+	m.Unlock()
+	return order, ok
 }
 
 func (m *SyncOrderMap) Lookup(f func(o Order) bool) *Order {
@@ -223,3 +255,31 @@ func (m *SyncOrderMap) Orders() (slice OrderSlice) {
 }
 
 type OrderSlice []Order
+
+func (s *OrderSlice) Add(o Order) {
+	*s = append(*s, o)
+}
+
+// Map builds up an OrderMap by the order id
+func (s OrderSlice) Map() OrderMap {
+	return NewOrderMap(s...)
+}
+
+func (s OrderSlice) SeparateBySide() (buyOrders, sellOrders []Order) {
+	for _, o := range s {
+		switch o.Side {
+		case SideTypeBuy:
+			buyOrders = append(buyOrders, o)
+		case SideTypeSell:
+			sellOrders = append(sellOrders, o)
+		}
+	}
+
+	return buyOrders, sellOrders
+}
+
+func (s OrderSlice) Print() {
+	for _, o := range s {
+		logrus.Infof("%s", o)
+	}
+}

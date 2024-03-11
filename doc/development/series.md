@@ -1,8 +1,12 @@
-Indicator Interface
+Series Interface
 -----------------------------------
 
-In bbgo, we've added several interfaces to standardize the indicator protocol.  
-The new interfaces will allow strategy developers switching similar indicators without checking the code.  
+Series defines the data structure of the indicator data.
+
+indicators use this series interface to manage these time-series data.
+
+The interface allow strategy developers to switch similar indicators without checking the code.  
+
 Signal contributors or indicator developers were also able to be benefit from the existing interface functions, such as `Add`, `Mul`, `Minus`, and `Div`, without rebuilding the wheels.
 
 The series interface in bbgo borrows the concept of `series` type in pinescript that allow us to query data in time-based reverse order (data that created later will be the former object in series). Right now, based on the return type, we have two interfaces been defined in [pkg/types/indicator.go](../../pkg/types/indicator.go):
@@ -25,7 +29,7 @@ type BoolSeries interface {
 }
 ```
 
-Series were used almost everywhere in indicators to return the calculated numeric results, but the use of BoolSeries is quite limited. At this moment, we only use BoolSeries to check if some condition is fullfilled at some timepoint. For example, in `CrossOver` and `CrossUnder` functions if `Last()` returns true, then there might be a cross event happend on the curves at the moment.
+Series were used almost everywhere in indicators to return the calculated numeric results, but the use of BoolSeries is quite limited. At this moment, we only use BoolSeries to check if some condition is fulfilled at some timepoint. For example, in `CrossOver` and `CrossUnder` functions if `Last()` returns true, then there might be a cross event happened on the curves at the moment.
 
 #### Expected Implementation
 
@@ -44,7 +48,7 @@ and if any of the method in the interface not been implemented, this would gener
 
 #### Extended Series
 
-Instead of simple Series interface, we have `types.SeriesExtend` interface that enriches the functionality of `types.Series`. An indicator struct could simply be extended to `types.SeriesExtend` type by embedding anonymous struct `types.SeriesBase`, and instanced by `types.NewSeries()` function. The `types.SeriesExtend` interface binds commonly used functions, such as `Add`, `Reverse`, `Shfit`, `Covariance` and `Entropy`, to the original `types.Series` object. Please check [pkg/types/seriesbase_imp.go](../../pkg/types/seriesbase_imp.go) for the extendable functions.
+Instead of simple Series interface, we have `types.SeriesExtend` interface that enriches the functionality of `types.Series`. An indicator struct could simply be extended to `types.SeriesExtend` type by embedding anonymous struct `types.SeriesBase`, and instanced by `types.NewSeries()` function. The `types.SeriesExtend` interface binds commonly used functions, such as `Add`, `Reverse`, `Shift`, `Covariance` and `Entropy`, to the original `types.Series` object. Please check [pkg/types/seriesbase_imp.go](../../pkg/types/seriesbase_imp.go) for the extendable functions.
 
 Example:
 

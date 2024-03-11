@@ -27,12 +27,32 @@ var defaultDialer = &websocket.Dialer{
 type Stream interface {
 	StandardStreamEventHub
 
+	// Subscribe subscribes the specific channel, but not connect to the server.
 	Subscribe(channel Channel, symbol string, options SubscribeOptions)
 	GetSubscriptions() []Subscription
+	// Resubscribe used to update or renew existing subscriptions. It will reconnect to the server.
+	Resubscribe(func(oldSubs []Subscription) (newSubs []Subscription, err error)) error
+	// SetPublicOnly connects to public or private
 	SetPublicOnly()
 	GetPublicOnly() bool
+
+	// Connect connects to websocket server
 	Connect(ctx context.Context) error
+	Reconnect()
 	Close() error
+}
+
+type PrivateChannelSetter interface {
+	SetPrivateChannels(channels []string)
+}
+
+type PrivateChannelSymbolSetter interface {
+	SetPrivateChannelSymbols(symbols []string)
+}
+
+type Unsubscriber interface {
+	// Unsubscribe unsubscribes the all subscriptions.
+	Unsubscribe()
 }
 
 type EndpointCreator func(ctx context.Context) (string, error)
@@ -41,10 +61,18 @@ type Parser func(message []byte) (interface{}, error)
 
 type Dispatcher func(e interface{})
 
+// HeartBeat keeps connection alive by sending the ping packet.
+type HeartBeat func(conn *websocket.Conn) error
+
+type BeforeConnect func(ctx context.Context) error
+
+type WebsocketPongEvent struct{}
+
 //go:generate callbackgen -type StandardStream -interface
 type StandardStream struct {
-	parser     Parser
-	dispatcher Dispatcher
+	parser       Parser
+	dispatcher   Dispatcher
+	pingInterval time.Duration
 
 	endpointCreator EndpointCreator
 
@@ -63,6 +91,11 @@ type StandardStream struct {
 
 	PublicOnly bool
 
+	// sg is used to wait until the previous routines are closed.
+	// only handle routines used internally, avoid including external callback func to prevent issues if they have
+	// bugs and cannot terminate.
+	sg SyncGroup
+
 	// ReconnectC is a signal channel for reconnecting
 	ReconnectC chan struct{}
 
@@ -71,11 +104,19 @@ type StandardStream struct {
 
 	Subscriptions []Subscription
 
+	// subLock is used for locking Subscriptions fields.
+	// When changing these field values, be sure to call subLock
+	subLock sync.Mutex
+
 	startCallbacks []func()
 
 	connectCallbacks []func()
 
 	disconnectCallbacks []func()
+
+	authCallbacks []func()
+
+	rawMessageCallbacks []func(raw []byte)
 
 	// private trade update callbacks
 	tradeUpdateCallbacks []func(trade Trade)
@@ -105,10 +146,16 @@ type StandardStream struct {
 
 	aggTradeCallbacks []func(trade Trade)
 
+	forceOrderCallbacks []func(info LiquidationInfo)
+
 	// Futures
 	FuturesPositionUpdateCallbacks []func(futuresPositions FuturesPositionMap)
 
 	FuturesPositionSnapshotCallbacks []func(futuresPositions FuturesPositionMap)
+
+	heartBeat HeartBeat
+
+	beforeConnect BeforeConnect
 }
 
 type StandardStreamEmitter interface {
@@ -116,6 +163,7 @@ type StandardStreamEmitter interface {
 	EmitStart()
 	EmitConnect()
 	EmitDisconnect()
+	EmitAuth()
 	EmitTradeUpdate(Trade)
 	EmitOrderUpdate(Order)
 	EmitPositionUpdate(PositionInfo)
@@ -128,14 +176,17 @@ type StandardStreamEmitter interface {
 	EmitBookSnapshot(SliceOrderBook)
 	EmitMarketTrade(Trade)
 	EmitAggTrade(Trade)
+	EmitForceOrder(LiquidationInfo)
 	EmitFuturesPositionUpdate(FuturesPositionMap)
 	EmitFuturesPositionSnapshot(FuturesPositionMap)
 }
 
 func NewStandardStream() StandardStream {
 	return StandardStream{
-		ReconnectC: make(chan struct{}, 1),
-		CloseC:     make(chan struct{}),
+		ReconnectC:   make(chan struct{}, 1),
+		CloseC:       make(chan struct{}),
+		sg:           NewSyncGroup(),
+		pingInterval: pingInterval,
 	}
 }
 
@@ -164,9 +215,10 @@ func (s *StandardStream) SetConn(ctx context.Context, conn *websocket.Conn) (con
 	connCtx, connCancel := context.WithCancel(ctx)
 	s.ConnLock.Lock()
 
-	// ensure the previous context is cancelled
+	// ensure the previous context is cancelled and all routines are closed.
 	if s.ConnCancel != nil {
 		s.ConnCancel()
+		s.sg.WaitAndClear()
 	}
 
 	// create a new context for this connection
@@ -186,6 +238,9 @@ func (s *StandardStream) Read(ctx context.Context, conn *websocket.Conn, cancel 
 	// flag format: debug-{component}-{message type}
 	debugRawMessage := viper.GetBool("debug-websocket-raw-message")
 
+	hasParser := s.parser != nil
+	hasDispatcher := s.dispatcher != nil
+
 	for {
 		select {
 
@@ -203,30 +258,28 @@ func (s *StandardStream) Read(ctx context.Context, conn *websocket.Conn, cancel 
 			mt, message, err := conn.ReadMessage()
 			if err != nil {
 				// if it's a network timeout error, we should re-connect
-				switch err := err.(type) {
+				switch err2 := err.(type) {
 
 				// if it's a websocket related error
 				case *websocket.CloseError:
-					if err.Code == websocket.CloseNormalClosure {
-						return
+					if err2.Code != websocket.CloseNormalClosure {
+						log.WithError(err2).Warnf("websocket error abnormal close: %+v", err2)
 					}
 
-					log.WithError(err).Errorf("websocket error abnormal close: %+v", err)
-
 					_ = conn.Close()
-					// for unexpected close error, we should re-connect
+					// for close error, we should re-connect
 					// emit reconnect to start a new connection
 					s.Reconnect()
 					return
 
 				case net.Error:
-					log.WithError(err).Error("websocket read network error")
+					log.WithError(err2).Warn("websocket read network error")
 					_ = conn.Close()
 					s.Reconnect()
 					return
 
 				default:
-					log.WithError(err).Error("unexpected websocket error")
+					log.WithError(err2).Warn("unexpected websocket error")
 					_ = conn.Close()
 					s.Reconnect()
 					return
@@ -242,29 +295,45 @@ func (s *StandardStream) Read(ctx context.Context, conn *websocket.Conn, cancel 
 				log.Info(string(message))
 			}
 
-			var e interface{}
-			if s.parser != nil {
-				e, err = s.parser(message)
-				if err != nil {
-					log.WithError(err).Errorf("websocket event parse error, message: %s", message)
-					continue
-				}
+			if !hasParser {
+				s.EmitRawMessage(message)
+				continue
 			}
 
-			if s.dispatcher != nil {
+			var e interface{}
+			e, err = s.parser(message)
+			if err != nil {
+				log.WithError(err).Errorf("websocket event parse error, message: %s", message)
+				// emit raw message even if occurs error, because we want anything can be detected
+				s.EmitRawMessage(message)
+				continue
+			}
+
+			// skip pong event to avoid the message like spam
+			if _, ok := e.(*WebsocketPongEvent); !ok {
+				s.EmitRawMessage(message)
+			}
+
+			if hasDispatcher {
 				s.dispatcher(e)
 			}
 		}
 	}
 }
 
-func (s *StandardStream) ping(ctx context.Context, conn *websocket.Conn, cancel context.CancelFunc, interval time.Duration) {
+func (s *StandardStream) SetPingInterval(interval time.Duration) {
+	s.pingInterval = interval
+}
+
+func (s *StandardStream) ping(
+	ctx context.Context, conn *websocket.Conn, cancel context.CancelFunc,
+) {
 	defer func() {
 		cancel()
 		log.Debug("[websocket] ping worker stopped")
 	}()
 
-	var pingTicker = time.NewTicker(interval)
+	var pingTicker = time.NewTicker(s.pingInterval)
 	defer pingTicker.Stop()
 
 	for {
@@ -277,19 +346,52 @@ func (s *StandardStream) ping(ctx context.Context, conn *websocket.Conn, cancel 
 			return
 
 		case <-pingTicker.C:
+			if s.heartBeat != nil {
+				if err := s.heartBeat(conn); err != nil {
+					// log errors at the concrete class so that we can identify which exchange encountered an error
+					s.Reconnect()
+					return
+				}
+			}
+
 			if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeTimeout)); err != nil {
 				log.WithError(err).Error("ping error", err)
 				s.Reconnect()
+				return
 			}
 		}
 	}
 }
 
 func (s *StandardStream) GetSubscriptions() []Subscription {
+	s.subLock.Lock()
+	defer s.subLock.Unlock()
+
 	return s.Subscriptions
 }
 
+// Resubscribe synchronizes the new subscriptions based on the provided function.
+// The fn function takes the old subscriptions as input and returns the new subscriptions that will replace the old ones
+// in the struct then Reconnect.
+// This method is thread-safe.
+func (s *StandardStream) Resubscribe(fn func(old []Subscription) (new []Subscription, err error)) error {
+	s.subLock.Lock()
+	defer s.subLock.Unlock()
+
+	var err error
+	subs, err := fn(s.Subscriptions)
+	if err != nil {
+		return err
+	}
+	s.Subscriptions = subs
+	s.Reconnect()
+	return nil
+}
+
 func (s *StandardStream) Subscribe(channel Channel, symbol string, options SubscribeOptions) {
+	s.subLock.Lock()
+	defer s.subLock.Unlock()
+
 	s.Subscriptions = append(s.Subscriptions, Subscription{
 		Channel: channel,
 		Symbol:  symbol,
@@ -306,12 +408,18 @@ func (s *StandardStream) Reconnect() {
 
 // Connect starts the stream and create the websocket connection
 func (s *StandardStream) Connect(ctx context.Context) error {
+	if s.beforeConnect != nil {
+		if err := s.beforeConnect(ctx); err != nil {
+			return err
+		}
+	}
 	err := s.DialAndConnect(ctx)
 	if err != nil {
 		return err
 	}
 
 	// start one re-connector goroutine with the base context
+	// reconnector goroutine does not exit when the connection is closed
 	go s.reconnector(ctx)
 
 	s.EmitStart()
@@ -352,8 +460,13 @@ func (s *StandardStream) DialAndConnect(ctx context.Context) error {
 	connCtx, connCancel := s.SetConn(ctx, conn)
 	s.EmitConnect()
 
-	go s.Read(connCtx, conn, connCancel)
-	go s.ping(connCtx, conn, connCancel, pingInterval)
+	s.sg.Add(func() {
+		s.Read(connCtx, conn, connCancel)
+	})
+	s.sg.Add(func() {
+		s.ping(connCtx, conn, connCancel)
+	})
+	s.sg.Run()
 	return nil
 }
 
@@ -423,6 +536,16 @@ func (s *StandardStream) Close() error {
 	return nil
 }
 
+// SetHeartBeat sets the custom heart beat implementation if needed
+func (s *StandardStream) SetHeartBeat(fn HeartBeat) {
+	s.heartBeat = fn
+}
+
+// SetBeforeConnect sets the custom hook function before connect
+func (s *StandardStream) SetBeforeConnect(fn BeforeConnect) {
+	s.beforeConnect = fn
+}
+
 type Depth string
 
 const (
@@ -430,7 +553,12 @@ const (
 	DepthLevelMedium Depth = "MEDIUM"
 	DepthLevel1      Depth = "1"
 	DepthLevel5      Depth = "5"
+	DepthLevel10     Depth = "10"
+	DepthLevel15     Depth = "15"
 	DepthLevel20     Depth = "20"
+	DepthLevel50     Depth = "50"
+	DepthLevel200    Depth = "200"
+	DepthLevel400    Depth = "400"
 )
 
 type Speed string

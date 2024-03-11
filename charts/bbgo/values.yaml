@@ -37,6 +37,10 @@ serviceAccount:
   # If not set and create is true, a name is generated using the fullname template
   name: ""
 
+additionalLabels: {}
+
+deploymentAnnotations: {}
+
 podAnnotations: {}
 
 podSecurityContext: {}
@@ -73,6 +77,10 @@ webserver:
 metrics:
   enabled: false
   port: 9090
+
+logFormatter:
+  enabled: false
+  format: json
 
 grpc:
   enabled: false

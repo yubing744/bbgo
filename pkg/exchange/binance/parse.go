@@ -7,52 +7,79 @@ import (
 	"time"
 
 	"github.com/adshao/go-binance/v2/futures"
+	"github.com/slack-go/slack"
 
 	"github.com/adshao/go-binance/v2"
 	"github.com/valyala/fastjson"
 
+	"github.com/c9s/bbgo/pkg/exchange/binance/binanceapi"
 	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/types"
 )
 
-/*
+type EventType = string
 
+const (
+	EventTypeKLine                   EventType = "kline"
+	EventTypeOutboundAccountPosition EventType = "outboundAccountPosition"
+	EventTypeOutboundAccountInfo     EventType = "outboundAccountInfo"
+	EventTypeBalanceUpdate           EventType = "balanceUpdate"
+	EventTypeExecutionReport         EventType = "executionReport"
+	EventTypeDepthUpdate             EventType = "depthUpdate"
+	EventTypeListenKeyExpired        EventType = "listenKeyExpired"
+	EventTypeTrade                   EventType = "trade"
+	EventTypeAggTrade                EventType = "aggTrade"
+	EventTypeForceOrder              EventType = "forceOrder"
+
+	// Our side defines the following event types since binance doesn't
+	// define the event name from the server messages.
+	//
+	EventTypeBookTicker   EventType = "bookTicker"
+	EventTypePartialDepth EventType = "partialDepth"
+)
+
+type EventBase struct {
+	Event string                     `json:"e"` // event name
+	Time  types.MillisecondTimestamp `json:"E"` // event time
+}
+
+/*
 executionReport
 
-{
-  "e": "executionReport",        // Event type
-  "E": 1499405658658,            // Event time
-  "s": "ETHBTC",                 // Symbol
-  "c": "mUvoqJxFIILMdfAW5iGSOW", // Client order ID
-  "S": "BUY",                    // Side
-  "o": "LIMIT",                  // Order type
-  "f": "GTC",                    // Time in force
-  "q": "1.00000000",             // Order quantity
-  "p": "0.10264410",             // Order price
-  "P": "0.00000000",             // Stop price
-  "F": "0.00000000",             // Iceberg quantity
-  "g": -1,                       // OrderListId
-  "C": null,                     // Original client order ID; This is the ID of the order being canceled
-  "x": "NEW",                    // Current execution type
-  "X": "NEW",                    // Current order status
-  "r": "NONE",                   // Order reject reason; will be an error code.
-  "i": 4293153,                  // Order ID
-  "l": "0.00000000",             // Last executed quantity
-  "z": "0.00000000",             // Cumulative filled quantity
-  "L": "0.00000000",             // Last executed price
-  "n": "0",                      // Commission amount
-  "N": null,                     // Commission asset
-  "T": 1499405658657,            // Transaction time
-  "t": -1,                       // Trade ID
-  "I": 8641984,                  // Ignore
-  "w": true,                     // Is the order on the book?
-  "m": false,                    // Is this trade the maker side?
-  "M": false,                    // Ignore
-  "O": 1499405658657,            // Order creation time
-  "Z": "0.00000000",             // Cumulative quote asset transacted quantity
-  "Y": "0.00000000",             // Last quote asset transacted quantity (i.e. lastPrice * lastQty)
-  "Q": "0.00000000"              // Quote Order Quantity
-}
+	{
+	  "e": "executionReport",        // Event type
+	  "E": 1499405658658,            // Event time
+	  "s": "ETHBTC",                 // Symbol
+	  "c": "mUvoqJxFIILMdfAW5iGSOW", // Client order ID
+	  "S": "BUY",                    // Side
+	  "o": "LIMIT",                  // Order type
+	  "f": "GTC",                    // Time in force
+	  "q": "1.00000000",             // Order quantity
+	  "p": "0.10264410",             // Order price
+	  "P": "0.00000000",             // Stop price
+	  "F": "0.00000000",             // Iceberg quantity
+	  "g": -1,                       // OrderListId
+	  "C": null,                     // Original client order ID; This is the ID of the order being canceled
+	  "x": "NEW",                    // Current execution type
+	  "X": "NEW",                    // Current order status
+	  "r": "NONE",                   // Order reject reason; will be an error code.
+	  "i": 4293153,                  // Order ID
+	  "l": "0.00000000",             // Last executed quantity
+	  "z": "0.00000000",             // Cumulative filled quantity
+	  "L": "0.00000000",             // Last executed price
+	  "n": "0",                      // Commission amount
+	  "N": null,                     // Commission asset
+	  "T": 1499405658657,            // Transaction time
+	  "t": -1,                       // Trade ID
+	  "I": 8641984,                  // Ignore
+	  "w": true,                     // Is the order on the book?
+	  "m": false,                    // Is this trade the maker side?
+	  "M": false,                    // Ignore
+	  "O": 1499405658657,            // Order creation time
+	  "Z": "0.00000000",             // Cumulative quote asset transacted quantity
+	  "Y": "0.00000000",             // Last quote asset transacted quantity (i.e. lastPrice * lastQty)
+	  "Q": "0.00000000"              // Quote Order Quantity
+	}
 */
 type ExecutionReportEvent struct {
 	EventBase
@@ -160,71 +187,100 @@ func (e *ExecutionReportEvent) Trade() (*types.Trade, error) {
 }
 
 /*
-balanceUpdate
+event: balanceUpdate
 
-{
-  "e": "balanceUpdate",         //KLineEvent Type
-  "E": 1573200697110,           //KLineEvent Time
-  "a": "BTC",                   //Asset
-  "d": "100.00000000",          //Balance Delta
-  "T": 1573200697068            //Clear Time
-}
+Balance Update occurs during the following:
+
+Deposits or withdrawals from the account
+Transfer of funds between accounts (e.g. Spot to Margin)
+
+	{
+	  "e": "balanceUpdate",         //KLineEvent Type
+	  "E": 1573200697110,           //KLineEvent Time
+	  "a": "BTC",                   //Asset
+	  "d": "100.00000000",          //Balance Delta
+	  "T": 1573200697068            //Clear Time
+	}
+
+This event is only for Spot
 */
 type BalanceUpdateEvent struct {
 	EventBase
 
-	Asset     string `json:"a"`
-	Delta     string `json:"d"`
-	ClearTime int64  `json:"T"`
+	Asset     string                     `json:"a"`
+	Delta     fixedpoint.Value           `json:"d"`
+	ClearTime types.MillisecondTimestamp `json:"T"`
+}
+
+func (e *BalanceUpdateEvent) SlackAttachment() slack.Attachment {
+	return slack.Attachment{
+		Title: "Binance Balance Update Event",
+		Color: "warning",
+		Fields: []slack.AttachmentField{
+			{
+				Title: "Asset",
+				Value: e.Asset,
+				Short: true,
+			},
+			{
+				Title: "Delta",
+				Value: e.Delta.String(),
+				Short: true,
+			},
+			{
+				Title: "Time",
+				Value: e.ClearTime.String(),
+				Short: true,
+			},
+		},
+	}
 }
 
 /*
-
 outboundAccountInfo
 
-{
-  "e": "outboundAccountInfo",   // KLineEvent type
-  "E": 1499405658849,           // KLineEvent time
-  "m": 0,                       // Maker commission rate (bips)
-  "t": 0,                       // Taker commission rate (bips)
-  "b": 0,                       // Buyer commission rate (bips)
-  "s": 0,                       // Seller commission rate (bips)
-  "T": true,                    // Can trade?
-  "W": true,                    // Can withdraw?
-  "D": true,                    // Can deposit?
-  "u": 1499405658848,           // Time of last account update
-  "B": [                        // AccountBalances array
-    {
-      "a": "LTC",               // Asset
-      "f": "17366.18538083",    // Free amount
-      "l": "0.00000000"         // Locked amount
-    },
-    {
-      "a": "BTC",
-      "f": "10537.85314051",
-      "l": "2.19464093"
-    },
-    {
-      "a": "ETH",
-      "f": "17902.35190619",
-      "l": "0.00000000"
-    },
-    {
-      "a": "BNC",
-      "f": "1114503.29769312",
-      "l": "0.00000000"
-    },
-    {
-      "a": "NEO",
-      "f": "0.00000000",
-      "l": "0.00000000"
-    }
-  ],
-  "P": [                       // Account Permissions
-        "SPOT"
-  ]
-}
-
+	{
+	  "e": "outboundAccountInfo",   // KLineEvent type
+	  "E": 1499405658849,           // KLineEvent time
+	  "m": 0,                       // Maker commission rate (bips)
+	  "t": 0,                       // Taker commission rate (bips)
+	  "b": 0,                       // Buyer commission rate (bips)
+	  "s": 0,                       // Seller commission rate (bips)
+	  "T": true,                    // Can trade?
+	  "W": true,                    // Can withdraw?
+	  "D": true,                    // Can deposit?
+	  "u": 1499405658848,           // Time of last account update
+	  "B": [                        // AccountBalances array
+	    {
+	      "a": "LTC",               // Asset
+	      "f": "17366.18538083",    // Free amount
+	      "l": "0.00000000"         // Locked amount
+	    },
+	    {
+	      "a": "BTC",
+	      "f": "10537.85314051",
+	      "l": "2.19464093"
+	    },
+	    {
+	      "a": "ETH",
+	      "f": "17902.35190619",
+	      "l": "0.00000000"
+	    },
+	    {
+	      "a": "BNC",
+	      "f": "1114503.29769312",
+	      "l": "0.00000000"
+	    },
+	    {
+	      "a": "NEO",
+	      "f": "0.00000000",
+	      "l": "0.00000000"
+	    }
+	  ],
+	  "P": [                       // Account Permissions
+	        "SPOT"
+	  ]
+	}
 */
 type Balance struct {
 	Asset  string           `json:"a"`
@@ -262,74 +318,109 @@ type ResultEvent struct {
 	ID     int         `json:"id"`
 }
 
-func parseWebSocketEvent(message []byte) (interface{}, error) {
-	val, err := fastjson.ParseBytes(message)
+var parserPool fastjson.ParserPool
 
+func parseWebSocketEvent(message []byte) (interface{}, error) {
+	parser := parserPool.Get()
+	val, err := parser.ParseBytes(message)
 	if err != nil {
 		return nil, err
 	}
 
-	// res, err := json.MarshalIndent(message, "", "  ")
-	// if err != nil {
-	//	log.Fatal(err)
-	// }
-	// str := strings.ReplaceAll(string(res), "\\", "")
-	// fmt.Println(str)
 	eventType := string(val.GetStringBytes("e"))
-	if eventType == "" && IsBookTicker(val) {
-		eventType = "bookTicker"
+	if eventType == "" {
+		if isBookTicker(val) {
+			eventType = EventTypeBookTicker
+		} else if isPartialDepth(val) {
+			eventType = EventTypePartialDepth
+		}
 	}
 
 	switch eventType {
-	case "kline":
-		var event KLineEvent
-		err := json.Unmarshal([]byte(message), &event)
+
+	case EventTypeOutboundAccountPosition:
+		var event OutboundAccountPositionEvent
+		err = json.Unmarshal(message, &event)
 		return &event, err
-	case "bookTicker":
+
+	case EventTypeOutboundAccountInfo:
+		var event OutboundAccountInfoEvent
+		err = json.Unmarshal(message, &event)
+		return &event, err
+
+	case EventTypeBalanceUpdate:
+		var event BalanceUpdateEvent
+		err = json.Unmarshal(message, &event)
+		return &event, err
+
+	case EventTypeExecutionReport:
+		var event ExecutionReportEvent
+		err = json.Unmarshal(message, &event)
+		return &event, err
+
+	case EventTypeDepthUpdate:
+		return parseDepthEvent(val)
+
+	case EventTypeTrade:
+		var event MarketTradeEvent
+		err = json.Unmarshal(message, &event)
+		return &event, err
+
+	case EventTypeBookTicker:
 		var event BookTickerEvent
-		err := json.Unmarshal([]byte(message), &event)
+		err := json.Unmarshal(message, &event)
 		event.Event = eventType
 		return &event, err
 
-	case "outboundAccountPosition":
-		var event OutboundAccountPositionEvent
-		err = json.Unmarshal([]byte(message), &event)
+	case EventTypePartialDepth:
+		var depth binanceapi.Depth
+		err := json.Unmarshal(message, &depth)
+		return &PartialDepthEvent{
+			EventBase: EventBase{
+				Event: EventTypePartialDepth,
+				Time:  types.MillisecondTimestamp(time.Now()),
+			},
+			Depth: depth,
+		}, err
+
+	case EventTypeKLine:
+		var event KLineEvent
+		err := json.Unmarshal(message, &event)
 		return &event, err
 
-	case "outboundAccountInfo":
-		var event OutboundAccountInfoEvent
-		err = json.Unmarshal([]byte(message), &event)
+	case EventTypeListenKeyExpired:
+		var event ListenKeyExpired
+		err = json.Unmarshal(message, &event)
 		return &event, err
 
-	case "balanceUpdate":
-		var event BalanceUpdateEvent
-		err = json.Unmarshal([]byte(message), &event)
+	case EventTypeAggTrade:
+		var event AggTradeEvent
+		err = json.Unmarshal(message, &event)
 		return &event, err
 
-	case "executionReport":
-		var event ExecutionReportEvent
+	case EventTypeForceOrder:
+		var event ForceOrderEvent
+		err = json.Unmarshal(message, &event)
+		return &event, err
+	}
+
+	// events for futures
+	switch eventType {
+
+	// futures market data stream
+	// ========================================================
+	case "continuousKline":
+		var event ContinuousKLineEvent
 		err = json.Unmarshal([]byte(message), &event)
 		return &event, err
-
-	case "depthUpdate":
-		return parseDepthEvent(val)
 
 	case "markPriceUpdate":
 		var event MarkPriceUpdateEvent
 		err = json.Unmarshal([]byte(message), &event)
 		return &event, err
 
-	case "listenKeyExpired":
-		var event ListenKeyExpired
-		err = json.Unmarshal([]byte(message), &event)
-		return &event, err
-
-	// Binance futures data --------------
-	case "continuousKline":
-		var event ContinuousKLineEvent
-		err = json.Unmarshal([]byte(message), &event)
-		return &event, err
-
+	// futures user data stream
+	// ========================================================
 	case "ORDER_TRADE_UPDATE":
 		var event OrderTradeUpdateEvent
 		err = json.Unmarshal([]byte(message), &event)
@@ -347,13 +438,8 @@ func parseWebSocketEvent(message []byte) (interface{}, error) {
 		err = json.Unmarshal([]byte(message), &event)
 		return &event, err
 
-	case "trade":
-		var event MarketTradeEvent
-		err = json.Unmarshal([]byte(message), &event)
-		return &event, err
-
-	case "aggTrade":
-		var event AggTradeEvent
+	case "MARGIN_CALL":
+		var event MarginCallEvent
 		err = json.Unmarshal([]byte(message), &event)
 		return &event, err
 
@@ -364,15 +450,20 @@ func parseWebSocketEvent(message []byte) (interface{}, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("unsupported message: %s", message)
+	return nil, fmt.Errorf("unsupported binance websocket message: %s", message)
 }
 
-// IsBookTicker document ref :https://binance-docs.github.io/apidocs/spot/en/#individual-symbol-book-ticker-streams
-// use key recognition because there's no identify in the content.
-func IsBookTicker(val *fastjson.Value) bool {
-	return !val.Exists("e") && val.Exists("u") &&
-		val.Exists("s") && val.Exists("b") &&
-		val.Exists("B") && val.Exists("a") && val.Exists("A")
+// isBookTicker document ref :https://binance-docs.github.io/apidocs/spot/en/#individual-symbol-book-ticker-streams
+// use key recognition because there's no identification in the content.
+func isBookTicker(val *fastjson.Value) bool {
+	return val.Exists("u") && val.Exists("s") &&
+		val.Exists("b") && val.Exists("B") &&
+		val.Exists("a") && val.Exists("A")
+}
+
+func isPartialDepth(val *fastjson.Value) bool {
+	return val.Exists("lastUpdateId") &&
+		val.Exists("bids") && val.Exists("bids")
 }
 
 type DepthEntry struct {
@@ -414,6 +505,7 @@ func (e *DepthEvent) String() (o string) {
 
 func (e *DepthEvent) OrderBook() (book types.SliceOrderBook, err error) {
 	book.Symbol = e.Symbol
+	book.Time = e.EventBase.Time.Time()
 
 	// already in descending order
 	book.Bids = e.Bids
@@ -447,16 +539,17 @@ func parseDepthEntry(val *fastjson.Value) (*types.PriceVolume, error) {
 	}, nil
 }
 
-func parseDepthEvent(val *fastjson.Value) (*DepthEvent, error) {
-	var err error
-	var depth = &DepthEvent{
+func parseDepthEvent(val *fastjson.Value) (depth *DepthEvent, err error) {
+	depth = &DepthEvent{
 		EventBase: EventBase{
 			Event: string(val.GetStringBytes("e")),
-			Time:  val.GetInt64("E"),
+			Time:  types.NewMillisecondTimestampFromInt(val.GetInt64("E")),
 		},
 		Symbol:        string(val.GetStringBytes("s")),
 		FirstUpdateID: val.GetInt64("U"),
 		FinalUpdateID: val.GetInt64("u"),
+		Bids:          make(types.PriceVolumeSlice, 0, 50),
+		Asks:          make(types.PriceVolumeSlice, 0, 50),
 	}
 
 	for _, ev := range val.GetArray("b") {
@@ -481,6 +574,62 @@ func parseDepthEvent(val *fastjson.Value) (*DepthEvent, error) {
 
 	return depth, err
 }
+
+type ForceOrderEventInner struct {
+	Symbol                string                     `json:"s"`
+	TradeTime             types.MillisecondTimestamp `json:"T"`
+	Side                  string                     `json:"S"`
+	OrderType             string                     `json:"o"`
+	TimeInForce           string                     `json:"f"`
+	Quantity              fixedpoint.Value           `json:"q"`
+	Price                 fixedpoint.Value           `json:"p"`
+	AveragePrice          fixedpoint.Value           `json:"ap"`
+	OrderStatus           string                     `json:"X"`
+	LastFilledQuantity    fixedpoint.Value           `json:"l"`
+	LastFilledAccQuantity fixedpoint.Value           `json:"z"`
+}
+
+type ForceOrderEvent struct {
+	EventBase
+	Order ForceOrderEventInner `json:"o"`
+}
+
+func (e *ForceOrderEvent) LiquidationInfo() types.LiquidationInfo {
+	o := e.Order
+	return types.LiquidationInfo{
+		Symbol:       o.Symbol,
+		Side:         types.SideType(o.Side),
+		OrderType:    types.OrderType(o.OrderType),
+		TimeInForce:  types.TimeInForce(o.TimeInForce),
+		Quantity:     o.Quantity,
+		Price:        o.Price,
+		AveragePrice: o.AveragePrice,
+		OrderStatus:  types.OrderStatus(o.OrderStatus),
+		TradeTime:    types.Time(o.TradeTime),
+	}
+}
+
+/*
+ForceOrderEvent
+
+{
+   "E" : 1689303434028,
+   "e" : "forceOrder",
+   "o" : {
+      "S" : "BUY", // Side
+      "T" : 1689303434025, // Order Trade Time
+      "X" : "FILLED", // Order Status
+      "ap" : "2011.09", // Average Price
+      "f" : "IOC", // TimeInForce
+      "l" : "0.003", // Last filled Quantity
+      "o" : "LIMIT", // Order Type
+      "p" : "2021.37", // Price
+      "q" : "0.003", // Original Quantity
+      "s" : "ETHUSDT", // Symbol
+      "z" : "0.003" // Order Filed Accumulated Quantity
+   }
+}
+*/
 
 type MarketTradeEvent struct {
 	EventBase
@@ -775,8 +924,8 @@ type OrderTrade struct {
 	CommissionAmount fixedpoint.Value `json:"n"`
 	CommissionAsset  string           `json:"N"`
 
-	OrderTradeTime int64 `json:"T"`
-	TradeId        int64 `json:"t"`
+	OrderTradeTime types.MillisecondTimestamp `json:"T"`
+	TradeId        int64                      `json:"t"`
 
 	BidsNotional string `json:"b"`
 	AskNotional  string `json:"a"`
@@ -849,7 +998,6 @@ func (e *OrderTradeUpdateEvent) OrderFutures() (*types.Order, error) {
 		return nil, errors.New("execution report type is not for futures order")
 	}
 
-	orderCreationTime := time.Unix(0, e.OrderTrade.OrderTradeTime*int64(time.Millisecond))
 	return &types.Order{
 		Exchange: types.ExchangeBinance,
 		SubmitOrder: types.SubmitOrder{
@@ -864,7 +1012,8 @@ func (e *OrderTradeUpdateEvent) OrderFutures() (*types.Order, error) {
 		OrderID:          uint64(e.OrderTrade.OrderId),
 		Status:           toGlobalFuturesOrderStatus(futures.OrderStatusType(e.OrderTrade.CurrentOrderStatus)),
 		ExecutedQuantity: e.OrderTrade.OrderFilledAccumulatedQuantity,
-		CreationTime:     types.Time(orderCreationTime),
+		CreationTime:     types.Time(e.OrderTrade.OrderTradeTime.Time()), // FIXME: find the correct field for creation time
+		UpdateTime:       types.Time(e.OrderTrade.OrderTradeTime.Time()),
 	}, nil
 }
 
@@ -873,7 +1022,6 @@ func (e *OrderTradeUpdateEvent) TradeFutures() (*types.Trade, error) {
 		return nil, errors.New("execution report is not a futures trade")
 	}
 
-	tt := time.Unix(0, e.OrderTrade.OrderTradeTime*int64(time.Millisecond))
 	return &types.Trade{
 		ID:            uint64(e.OrderTrade.TradeId),
 		Exchange:      types.ExchangeBinance,
@@ -885,55 +1033,143 @@ func (e *OrderTradeUpdateEvent) TradeFutures() (*types.Trade, error) {
 		QuoteQuantity: e.OrderTrade.LastFilledPrice.Mul(e.OrderTrade.OrderLastFilledQuantity),
 		IsBuyer:       e.OrderTrade.Side == "BUY",
 		IsMaker:       e.OrderTrade.IsMaker,
-		Time:          types.Time(tt),
+		Time:          types.Time(e.OrderTrade.OrderTradeTime.Time()),
 		Fee:           e.OrderTrade.CommissionAmount,
 		FeeCurrency:   e.OrderTrade.CommissionAsset,
 	}, nil
 }
 
-type AccountUpdate struct {
-	EventReasonType string                     `json:"m"`
-	Balances        []*futures.Balance         `json:"B,omitempty"`
-	Positions       []*futures.AccountPosition `json:"P,omitempty"`
+type FuturesStreamBalance struct {
+	Asset              string           `json:"a"`
+	WalletBalance      fixedpoint.Value `json:"wb"`
+	CrossWalletBalance fixedpoint.Value `json:"cw"`
+	BalanceChange      fixedpoint.Value `json:"bc"`
 }
 
+type FuturesStreamPosition struct {
+	Symbol                 string           `json:"s"`
+	PositionAmount         fixedpoint.Value `json:"pa"`
+	EntryPrice             fixedpoint.Value `json:"ep"`
+	AccumulatedRealizedPnL fixedpoint.Value `json:"cr"` // (Pre-fee) Accumulated Realized PnL
+	UnrealizedPnL          fixedpoint.Value `json:"up"`
+	MarginType             string           `json:"mt"`
+	IsolatedWallet         fixedpoint.Value `json:"iw"`
+	PositionSide           string           `json:"ps"`
+}
+
+type AccountUpdateEventReasonType string
+
+const (
+	AccountUpdateEventReasonDeposit          AccountUpdateEventReasonType = "DEPOSIT"
+	AccountUpdateEventReasonWithdraw         AccountUpdateEventReasonType = "WITHDRAW"
+	AccountUpdateEventReasonOrder            AccountUpdateEventReasonType = "ORDER"
+	AccountUpdateEventReasonFundingFee       AccountUpdateEventReasonType = "FUNDING_FEE"
+	AccountUpdateEventReasonMarginTransfer   AccountUpdateEventReasonType = "MARGIN_TRANSFER"
+	AccountUpdateEventReasonMarginTypeChange AccountUpdateEventReasonType = "MARGIN_TYPE_CHANGE"
+	AccountUpdateEventReasonAssetTransfer    AccountUpdateEventReasonType = "ASSET_TRANSFER"
+	AccountUpdateEventReasonAdminDeposit     AccountUpdateEventReasonType = "ADMIN_DEPOSIT"
+	AccountUpdateEventReasonAdminWithdraw    AccountUpdateEventReasonType = "ADMIN_WITHDRAW"
+)
+
+type AccountUpdate struct {
+	// m: DEPOSIT WITHDRAW
+	// ORDER FUNDING_FEE
+	// WITHDRAW_REJECT ADJUSTMENT
+	// INSURANCE_CLEAR
+	// ADMIN_DEPOSIT ADMIN_WITHDRAW
+	// MARGIN_TRANSFER MARGIN_TYPE_CHANGE
+	// ASSET_TRANSFER
+	// OPTIONS_PREMIUM_FEE OPTIONS_SETTLE_PROFIT
+	// AUTO_EXCHANGE
+	// COIN_SWAP_DEPOSIT COIN_SWAP_WITHDRAW
+	EventReasonType AccountUpdateEventReasonType `json:"m"`
+	Balances        []FuturesStreamBalance       `json:"B,omitempty"`
+	Positions       []FuturesStreamPosition      `json:"P,omitempty"`
+}
+
+type MarginCallEvent struct {
+	EventBase
+
+	CrossWalletBalance fixedpoint.Value `json:"cw"`
+	P                  []struct {
+		Symbol                    string           `json:"s"`
+		PositionSide              string           `json:"ps"`
+		PositionAmount            fixedpoint.Value `json:"pa"`
+		MarginType                string           `json:"mt"`
+		IsolatedWallet            fixedpoint.Value `json:"iw"`
+		MarkPrice                 fixedpoint.Value `json:"mp"`
+		UnrealizedPnL             fixedpoint.Value `json:"up"`
+		MaintenanceMarginRequired fixedpoint.Value `json:"mm"`
+	} `json:"p"` // Position(s) of Margin Call
+}
+
+// AccountUpdateEvent is only used in the futures user data stream
 type AccountUpdateEvent struct {
 	EventBase
-	Transaction int64 `json:"T"`
-
+	Transaction   int64         `json:"T"`
 	AccountUpdate AccountUpdate `json:"a"`
-}
-
-type AccountConfig struct {
-	Symbol   string           `json:"s"`
-	Leverage fixedpoint.Value `json:"l"`
 }
 
 type AccountConfigUpdateEvent struct {
 	EventBase
 	Transaction int64 `json:"T"`
 
-	AccountConfig AccountConfig `json:"ac"`
+	// When the leverage of a trade pair changes,
+	// the payload will contain the object ac to represent the account configuration of the trade pair,
+	// where s represents the specific trade pair and l represents the leverage
+	AccountConfig struct {
+		Symbol   string           `json:"s"`
+		Leverage fixedpoint.Value `json:"l"`
+	} `json:"ac"`
+
+	// When the user Multi-Assets margin mode changes the payload will contain the object ai representing the user account configuration,
+	// where j represents the user Multi-Assets margin mode
+	MarginModeConfig struct {
+		MultiAssetsMode bool `json:"j"`
+	} `json:"ai"`
 }
 
-type EventBase struct {
-	Event string `json:"e"` // event
-	Time  int64  `json:"E"`
+/*
+	{
+	  "lastUpdateId": 160,  // Last update ID
+	  "bids": [             // Bids to be updated
+	    [
+	      "0.0024",         // Price level to be updated
+	      "10"              // Quantity
+	    ]
+	  ],
+	  "asks": [             // Asks to be updated
+	    [
+	      "0.0026",         // Price level to be updated
+	      "100"             // Quantity
+	    ]
+	  ]
+	}
+*/
+type PartialDepthEvent struct {
+	EventBase
+
+	binanceapi.Depth
 }
 
+/*
+	{
+	  "u":400900217,     // order book updateId
+	  "s":"BNBUSDT",     // symbol
+	  "b":"25.35190000", // best bid price
+	  "B":"31.21000000", // best bid qty
+	  "a":"25.36520000", // best ask price
+	  "A":"40.66000000"  // best ask qty
+	}
+*/
 type BookTickerEvent struct {
 	EventBase
+	UpdateID int64            `json:"u"`
 	Symbol   string           `json:"s"`
 	Buy      fixedpoint.Value `json:"b"`
 	BuySize  fixedpoint.Value `json:"B"`
 	Sell     fixedpoint.Value `json:"a"`
 	SellSize fixedpoint.Value `json:"A"`
-	// "u":400900217,     // order book updateId
-	// "s":"BNBUSDT",     // symbol
-	// "b":"25.35190000", // best bid price
-	// "B":"31.21000000", // best bid qty
-	// "a":"25.36520000", // best ask price
-	// "A":"40.66000000"  // best ask qty
 }
 
 func (k *BookTickerEvent) BookTicker() types.BookTicker {

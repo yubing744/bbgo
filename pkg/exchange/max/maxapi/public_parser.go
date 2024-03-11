@@ -16,10 +16,13 @@ var ErrIncorrectBookEntryElementLength = errors.New("incorrect book entry elemen
 const Buy = 1
 const Sell = -1
 
+var parserPool fastjson.ParserPool
+
 // ParseMessage accepts the raw messages from max public websocket channels and parses them into market data
 // Return types: *BookEvent, *PublicTradeEvent, *SubscriptionEvent, *ErrorEvent
 func ParseMessage(payload []byte) (interface{}, error) {
-	parser := fastjson.Parser{}
+	parser := parserPool.Get()
+
 	val, err := parser.ParseBytes(payload)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to parse payload: "+string(payload))
@@ -81,25 +84,25 @@ type KLineEvent struct {
 }
 
 /*
-{
-  "c": "kline",
-  "M": "btcusdt",
-  "e": "update",
-  "T": 1602999650179,
-  "k": {
-    "ST": 1602999900000,
-    "ET": 1602999900000,
-    "M": "btcusdt",
-    "R": "5m",
-    "O": "11417.21",
-    "H": "11417.21",
-    "L": "11417.21",
-    "C": "11417.21",
-    "v": "0",
-    "ti": 0,
-    "x": false
-  }
-}
+	{
+	  "c": "kline",
+	  "M": "btcusdt",
+	  "e": "update",
+	  "T": 1602999650179,
+	  "k": {
+	    "ST": 1602999900000,
+	    "ET": 1602999900000,
+	    "M": "btcusdt",
+	    "R": "5m",
+	    "O": "11417.21",
+	    "H": "11417.21",
+	    "L": "11417.21",
+	    "C": "11417.21",
+	    "v": "0",
+	    "ti": 0,
+	    "x": false
+	  }
+	}
 */
 type KLinePayload struct {
 	StartTime   int64  `json:"ST"`
@@ -165,8 +168,8 @@ type BookEvent struct {
 	Market    string `json:"M"`
 	Channel   string `json:"c"`
 	Timestamp int64  `json:"t"` // Millisecond timestamp
-	Bids      []BookEntry
-	Asks      []BookEntry
+	Bids      types.PriceVolumeSlice
+	Asks      types.PriceVolumeSlice
 }
 
 func (e *BookEvent) Time() time.Time {
@@ -175,25 +178,9 @@ func (e *BookEvent) Time() time.Time {
 
 func (e *BookEvent) OrderBook() (snapshot types.SliceOrderBook, err error) {
 	snapshot.Symbol = strings.ToUpper(e.Market)
-
-	for _, bid := range e.Bids {
-		pv, err := bid.PriceVolumePair()
-		if err != nil {
-			return snapshot, err
-		}
-
-		snapshot.Bids = append(snapshot.Bids, pv)
-	}
-
-	for _, ask := range e.Asks {
-		pv, err := ask.PriceVolumePair()
-		if err != nil {
-			return snapshot, err
-		}
-
-		snapshot.Asks = append(snapshot.Asks, pv)
-	}
-
+	snapshot.Time = e.Time()
+	snapshot.Bids = e.Bids
+	snapshot.Asks = e.Asks
 	return snapshot, nil
 }
 
@@ -205,88 +192,72 @@ func parseKLineEvent(val *fastjson.Value) (*KLineEvent, error) {
 		Timestamp: val.GetInt64("T"),
 	}
 
+	k := val.Get("k")
+
 	event.KLine = KLine{
-		Symbol:    string(val.GetStringBytes("k", "M")),
-		Interval:  string(val.GetStringBytes("k", "R")),
-		StartTime: time.Unix(0, val.GetInt64("k", "ST")*int64(time.Millisecond)),
-		EndTime:   time.Unix(0, val.GetInt64("k", "ET")*int64(time.Millisecond)),
-		Open:      fixedpoint.MustNewFromBytes(val.GetStringBytes("k", "O")),
-		High:      fixedpoint.MustNewFromBytes(val.GetStringBytes("k", "H")),
-		Low:       fixedpoint.MustNewFromBytes(val.GetStringBytes("k", "L")),
-		Close:     fixedpoint.MustNewFromBytes(val.GetStringBytes("k", "C")),
-		Volume:    fixedpoint.MustNewFromBytes(val.GetStringBytes("k", "v")),
-		Closed:    val.GetBool("k", "x"),
+		Symbol:    string(k.GetStringBytes("M")),
+		Interval:  string(k.GetStringBytes("R")),
+		StartTime: time.Unix(0, k.GetInt64("ST")*int64(time.Millisecond)),
+		EndTime:   time.Unix(0, k.GetInt64("ET")*int64(time.Millisecond)),
+		Open:      fixedpoint.MustNewFromBytes(k.GetStringBytes("O")),
+		High:      fixedpoint.MustNewFromBytes(k.GetStringBytes("H")),
+		Low:       fixedpoint.MustNewFromBytes(k.GetStringBytes("L")),
+		Close:     fixedpoint.MustNewFromBytes(k.GetStringBytes("C")),
+		Volume:    fixedpoint.MustNewFromBytes(k.GetStringBytes("v")),
+		Closed:    k.GetBool("x"),
 	}
 
 	return &event, nil
 }
 
-func parseBookEvent(val *fastjson.Value) (*BookEvent, error) {
-	event := BookEvent{
+func parseBookEvent(val *fastjson.Value) (event *BookEvent, err error) {
+	event = &BookEvent{
 		Event:     string(val.GetStringBytes("e")),
 		Market:    string(val.GetStringBytes("M")),
 		Channel:   string(val.GetStringBytes("c")),
 		Timestamp: val.GetInt64("T"),
 	}
 
-	t := time.Unix(0, event.Timestamp*int64(time.Millisecond))
-
-	var err error
-	event.Asks, err = parseBookEntries(val.GetArray("a"), Sell, t)
+	// t := time.Unix(0, event.Timestamp*int64(time.Millisecond))
+	event.Asks, err = parseBookEntries2(val.GetArray("a"))
 	if err != nil {
-		return nil, err
+		return event, err
 	}
 
-	event.Bids, err = parseBookEntries(val.GetArray("b"), Buy, t)
-	if err != nil {
-		return nil, err
-	}
-
-	return &event, nil
+	event.Bids, err = parseBookEntries2(val.GetArray("b"))
+	return event, err
 }
 
-type BookEntry struct {
-	Side   int
-	Time   time.Time
-	Price  string
-	Volume string
-}
+// parseBookEntries2 parses JSON struct like `[["233330", "0.33"], ....]`
+func parseBookEntries2(vals []*fastjson.Value) (entries types.PriceVolumeSlice, err error) {
+	entries = make(types.PriceVolumeSlice, 0, 50)
 
-func (e *BookEntry) PriceVolumePair() (pv types.PriceVolume, err error) {
-	pv.Price, err = fixedpoint.NewFromString(e.Price)
-	if err != nil {
-		return pv, err
-	}
-
-	pv.Volume, err = fixedpoint.NewFromString(e.Volume)
-	if err != nil {
-		return pv, err
-	}
-
-	return pv, err
-}
-
-// parseBookEntries parses JSON struct like `[["233330", "0.33"], ....]`
-func parseBookEntries(vals []*fastjson.Value, side int, t time.Time) (entries []BookEntry, err error) {
+	var arr []*fastjson.Value
 	for _, entry := range vals {
-		pv, err := entry.Array()
+		arr, err = entry.Array()
 		if err != nil {
-			return nil, err
+			return entries, err
 		}
 
-		if len(pv) < 2 {
-			return nil, ErrIncorrectBookEntryElementLength
+		if len(arr) < 2 {
+			return entries, ErrIncorrectBookEntryElementLength
 		}
 
-		entries = append(entries, BookEntry{
-			Side:   side,
-			Time:   t,
-			Price:  string(pv[0].GetStringBytes()),
-			Volume: string(pv[1].GetStringBytes()),
-		})
+		var pv types.PriceVolume
+		pv.Price, err = fixedpoint.NewFromString(string(arr[0].GetStringBytes()))
+		if err != nil {
+			return entries, err
+		}
+
+		pv.Volume, err = fixedpoint.NewFromString(string(arr[1].GetStringBytes()))
+		if err != nil {
+			return entries, err
+		}
+
+		entries = append(entries, pv)
 	}
 
-	return entries, nil
+	return entries, err
 }
 
 type ErrorEvent struct {

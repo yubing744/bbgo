@@ -25,6 +25,8 @@ type Balance struct {
 
 	// NetAsset = (Available + Locked) - Borrowed - Interest
 	NetAsset fixedpoint.Value `json:"net,omitempty"`
+
+	MaxWithdrawAmount fixedpoint.Value `json:"maxWithdrawAmount,omitempty"`
 }
 
 func (b Balance) Add(b2 Balance) Balance {
@@ -69,15 +71,15 @@ func (b Balance) String() (o string) {
 	o = fmt.Sprintf("%s: %s", b.Currency, b.Net().String())
 
 	if b.Locked.Sign() > 0 {
-		o += fmt.Sprintf(" (locked %v)", b.Locked)
+		o += fmt.Sprintf(" (locked %f)", b.Locked.Float64())
 	}
 
 	if b.Borrowed.Sign() > 0 {
-		o += fmt.Sprintf(" (borrowed: %v)", b.Borrowed)
+		o += fmt.Sprintf(" (borrowed: %f)", b.Borrowed.Float64())
 	}
 
 	if b.Interest.Sign() > 0 {
-		o += fmt.Sprintf(" (interest: %v)", b.Interest)
+		o += fmt.Sprintf(" (interest: %f)", b.Interest.Float64())
 	}
 
 	return o
@@ -111,6 +113,18 @@ func (m BalanceSnapshot) CsvRecords() [][]string {
 }
 
 type BalanceMap map[string]Balance
+
+func (m BalanceMap) NotZero() BalanceMap {
+	bm := make(BalanceMap)
+	for c, b := range m {
+		if b.Total().IsZero() && b.Debt().IsZero() && b.Net().IsZero() {
+			continue
+		}
+
+		bm[c] = b
+	}
+	return bm
+}
 
 func (m BalanceMap) Debts() BalanceMap {
 	bm := make(BalanceMap)

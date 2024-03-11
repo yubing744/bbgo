@@ -22,9 +22,11 @@ type GridProfitStats struct {
 	TotalFee         map[string]fixedpoint.Value `json:"totalFee,omitempty"`
 	Volume           fixedpoint.Value            `json:"volume,omitempty"`
 	Market           types.Market                `json:"market,omitempty"`
-	ProfitEntries    []*GridProfit               `json:"profitEntries,omitempty"`
 	Since            *time.Time                  `json:"since,omitempty"`
 	InitialOrderID   uint64                      `json:"initialOrderID"`
+
+	// ttl is the ttl to keep in persistence
+	ttl time.Duration
 }
 
 func newGridProfitStats(market types.Market) *GridProfitStats {
@@ -38,8 +40,18 @@ func newGridProfitStats(market types.Market) *GridProfitStats {
 		TotalFee:         make(map[string]fixedpoint.Value),
 		Volume:           fixedpoint.Zero,
 		Market:           market,
-		ProfitEntries:    nil,
 	}
+}
+
+func (s *GridProfitStats) SetTTL(ttl time.Duration) {
+	if ttl.Nanoseconds() <= 0 {
+		return
+	}
+	s.ttl = ttl
+}
+
+func (s *GridProfitStats) Expiration() time.Duration {
+	return s.ttl
 }
 
 func (s *GridProfitStats) AddTrade(trade types.Trade) {
@@ -69,8 +81,6 @@ func (s *GridProfitStats) AddProfit(profit *GridProfit) {
 	case s.Market.BaseCurrency:
 		s.TotalBaseProfit = s.TotalBaseProfit.Add(profit.Profit)
 	}
-
-	s.ProfitEntries = append(s.ProfitEntries, profit)
 }
 
 func (s *GridProfitStats) SlackAttachment() slack.Attachment {
@@ -136,4 +146,44 @@ func (s *GridProfitStats) SlackAttachment() slack.Attachment {
 		Fields: fields,
 		Footer: footer,
 	}
+}
+
+func (s *GridProfitStats) String() string {
+	return s.PlainText()
+}
+
+func (s *GridProfitStats) PlainText() string {
+	var o string
+
+	o = fmt.Sprintf("%s Grid Profit Stats", s.Symbol)
+
+	o += fmt.Sprintf(" Arbitrage count: %d", s.ArbitrageCount)
+
+	if !s.FloatProfit.IsZero() {
+		o += " Float profit: " + style.PnLSignString(s.FloatProfit)
+	}
+
+	if !s.GridProfit.IsZero() {
+		o += " Grid profit: " + style.PnLSignString(s.GridProfit)
+	}
+
+	if !s.TotalQuoteProfit.IsZero() {
+		o += " Total quote profit: " + style.PnLSignString(s.TotalQuoteProfit) + " " + s.Market.QuoteCurrency
+	}
+
+	if !s.TotalBaseProfit.IsZero() {
+		o += " Total base profit: " + style.PnLSignString(s.TotalBaseProfit) + " " + s.Market.BaseCurrency
+	}
+
+	if len(s.TotalFee) > 0 {
+		for feeCurrency, fee := range s.TotalFee {
+			o += fmt.Sprintf(" Fee (%s)", feeCurrency) + fee.String() + " " + feeCurrency
+		}
+	}
+
+	if s.Since != nil {
+		o += fmt.Sprintf(" Since %s", s.Since.String())
+	}
+
+	return o
 }

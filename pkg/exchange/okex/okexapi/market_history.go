@@ -69,12 +69,12 @@ func (r *HistoryCandlesticksRequest) Do(ctx context.Context) ([]Candle, error) {
 		params.Add("limit", strconv.Itoa(*r.limit))
 	}
 
-	req, err := r.client.newRequest("GET", "/api/v5/market/history-candles", params, nil)
+	req, err := r.client.NewRequest(ctx, "GET", "/api/v5/market/history-candles", params, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := r.client.sendRequest(req)
+	resp, err := r.client.SendRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -148,9 +148,9 @@ func (r *HistoryCandlesticksRequest) Do(ctx context.Context) ([]Candle, error) {
 	return candles, nil
 }
 
-func (c *MarketDataService) NewHistoryCandlesticksRequest(instId string) *HistoryCandlesticksRequest {
+func (c *RestClient) NewHistoryCandlesticksRequest(instId string) *HistoryCandlesticksRequest {
 	return &HistoryCandlesticksRequest{
-		client: c.client,
+		client: c,
 		instId: instId,
 	}
 }

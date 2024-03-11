@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/c9s/bbgo/pkg/fixedpoint"
-	"github.com/c9s/bbgo/pkg/sigchan"
 )
 
 type OrderBook interface {
@@ -27,8 +26,9 @@ type OrderBook interface {
 type MutexOrderBook struct {
 	sync.Mutex
 
-	Symbol    string
-	OrderBook OrderBook
+	Symbol string
+
+	orderBook OrderBook
 }
 
 func NewMutexOrderBook(symbol string) *MutexOrderBook {
@@ -40,20 +40,27 @@ func NewMutexOrderBook(symbol string) *MutexOrderBook {
 
 	return &MutexOrderBook{
 		Symbol:    symbol,
-		OrderBook: book,
+		orderBook: book,
 	}
 }
 
 func (b *MutexOrderBook) IsValid() (ok bool, err error) {
 	b.Lock()
-	ok, err = b.OrderBook.IsValid()
+	ok, err = b.orderBook.IsValid()
 	b.Unlock()
 	return ok, err
 }
 
+func (b *MutexOrderBook) SideBook(sideType SideType) PriceVolumeSlice {
+	b.Lock()
+	sideBook := b.orderBook.SideBook(sideType)
+	b.Unlock()
+	return sideBook
+}
+
 func (b *MutexOrderBook) LastUpdateTime() time.Time {
 	b.Lock()
-	t := b.OrderBook.LastUpdateTime()
+	t := b.orderBook.LastUpdateTime()
 	b.Unlock()
 	return t
 }
@@ -61,8 +68,8 @@ func (b *MutexOrderBook) LastUpdateTime() time.Time {
 func (b *MutexOrderBook) BestBidAndAsk() (bid, ask PriceVolume, ok bool) {
 	var ok1, ok2 bool
 	b.Lock()
-	bid, ok1 = b.OrderBook.BestBid()
-	ask, ok2 = b.OrderBook.BestAsk()
+	bid, ok1 = b.orderBook.BestBid()
+	ask, ok2 = b.orderBook.BestAsk()
 	b.Unlock()
 	ok = ok1 && ok2
 	return bid, ask, ok
@@ -70,57 +77,71 @@ func (b *MutexOrderBook) BestBidAndAsk() (bid, ask PriceVolume, ok bool) {
 
 func (b *MutexOrderBook) BestBid() (pv PriceVolume, ok bool) {
 	b.Lock()
-	pv, ok = b.OrderBook.BestBid()
+	pv, ok = b.orderBook.BestBid()
 	b.Unlock()
 	return pv, ok
 }
 
 func (b *MutexOrderBook) BestAsk() (pv PriceVolume, ok bool) {
 	b.Lock()
-	pv, ok = b.OrderBook.BestAsk()
+	pv, ok = b.orderBook.BestAsk()
 	b.Unlock()
 	return pv, ok
 }
 
 func (b *MutexOrderBook) Load(book SliceOrderBook) {
 	b.Lock()
-	b.OrderBook.Load(book)
+	b.orderBook.Load(book)
 	b.Unlock()
 }
 
 func (b *MutexOrderBook) Reset() {
 	b.Lock()
-	b.OrderBook.Reset()
+	b.orderBook.Reset()
 	b.Unlock()
 }
 
-func (b *MutexOrderBook) CopyDepth(depth int) OrderBook {
+func (b *MutexOrderBook) CopyDepth(depth int) (ob OrderBook) {
 	b.Lock()
-	book := b.OrderBook.CopyDepth(depth)
+	ob = b.orderBook.CopyDepth(depth)
 	b.Unlock()
-	return book
+	return ob
 }
 
-func (b *MutexOrderBook) Copy() OrderBook {
+func (b *MutexOrderBook) Copy() (ob OrderBook) {
 	b.Lock()
-	book := b.OrderBook.Copy()
+	ob = b.orderBook.Copy()
 	b.Unlock()
-	return book
+
+	return ob
 }
 
 func (b *MutexOrderBook) Update(update SliceOrderBook) {
 	b.Lock()
-	b.OrderBook.Update(update)
+	b.orderBook.Update(update)
 	b.Unlock()
 }
 
-//go:generate callbackgen -type StreamOrderBook
+type BookSignalType int
+
+const (
+	BookSignalSnapshot BookSignalType = 1
+	BookSignalUpdate   BookSignalType = 2
+)
+
+type BookSignal struct {
+	Type BookSignalType
+	Time time.Time
+}
+
 // StreamOrderBook receives streaming data from websocket connection and
 // update the order book with mutex lock, so you can safely access it.
+//
+//go:generate callbackgen -type StreamOrderBook
 type StreamOrderBook struct {
 	*MutexOrderBook
 
-	C sigchan.Chan
+	C chan *BookSignal
 
 	updateCallbacks   []func(update SliceOrderBook)
 	snapshotCallbacks []func(snapshot SliceOrderBook)
@@ -129,7 +150,7 @@ type StreamOrderBook struct {
 func NewStreamBook(symbol string) *StreamOrderBook {
 	return &StreamOrderBook{
 		MutexOrderBook: NewMutexOrderBook(symbol),
-		C:              sigchan.New(60),
+		C:              make(chan *BookSignal, 1),
 	}
 }
 
@@ -141,7 +162,7 @@ func (sb *StreamOrderBook) BindStream(stream Stream) {
 
 		sb.Load(book)
 		sb.EmitSnapshot(book)
-		sb.C.Emit()
+		sb.emitChange(BookSignalSnapshot, book.Time)
 	})
 
 	stream.OnBookUpdate(func(book SliceOrderBook) {
@@ -151,6 +172,21 @@ func (sb *StreamOrderBook) BindStream(stream Stream) {
 
 		sb.Update(book)
 		sb.EmitUpdate(book)
-		sb.C.Emit()
+		sb.emitChange(BookSignalUpdate, book.Time)
 	})
+}
+
+func (sb *StreamOrderBook) emitChange(signalType BookSignalType, bookTime time.Time) {
+	select {
+	case sb.C <- &BookSignal{Type: signalType, Time: defaultTime(bookTime, time.Now)}:
+	default:
+	}
+}
+
+func defaultTime(a time.Time, b func() time.Time) time.Time {
+	if a.IsZero() {
+		return b()
+	}
+
+	return a
 }

@@ -12,11 +12,19 @@ import (
 
 // SliceOrderBook is a general order book structure which could be used
 // for RESTful responses and websocket stream parsing
+//
 //go:generate callbackgen -type SliceOrderBook
 type SliceOrderBook struct {
 	Symbol string
 	Bids   PriceVolumeSlice
 	Asks   PriceVolumeSlice
+	// Time represents the server time. If empty, it indicates that the server does not provide this information.
+	Time time.Time
+
+	// LastUpdateId is the message id from the server
+	// this field is optional, not every exchange provides this information
+	// this is for binance right now.
+	LastUpdateId int64
 
 	lastUpdateTime time.Time
 
@@ -133,7 +141,7 @@ func (b *SliceOrderBook) updateBids(pvs PriceVolumeSlice) {
 func (b *SliceOrderBook) update(book SliceOrderBook) {
 	b.updateBids(book.Bids)
 	b.updateAsks(book.Asks)
-	b.lastUpdateTime = time.Now()
+	b.lastUpdateTime = defaultTime(book.Time, time.Now)
 }
 
 func (b *SliceOrderBook) Reset() {
@@ -162,6 +170,8 @@ func (b *SliceOrderBook) String() string {
 	sb.WriteString("BOOK ")
 	sb.WriteString(b.Symbol)
 	sb.WriteString("\n")
+	sb.WriteString(b.Time.Format(time.RFC1123))
+	sb.WriteString("\n")
 
 	if len(b.Asks) > 0 {
 		sb.WriteString("ASKS:\n")
@@ -187,6 +197,7 @@ func (b *SliceOrderBook) String() string {
 func (b *SliceOrderBook) CopyDepth(limit int) OrderBook {
 	var book SliceOrderBook
 	book.Symbol = b.Symbol
+	book.Time = b.Time
 	book.Bids = b.Bids.CopyDepth(limit)
 	book.Asks = b.Asks.CopyDepth(limit)
 	return &book
@@ -195,6 +206,7 @@ func (b *SliceOrderBook) CopyDepth(limit int) OrderBook {
 func (b *SliceOrderBook) Copy() OrderBook {
 	var book SliceOrderBook
 	book.Symbol = b.Symbol
+	book.Time = b.Time
 	book.Bids = b.Bids.Copy()
 	book.Asks = b.Asks.Copy()
 	return &book

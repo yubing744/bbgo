@@ -30,11 +30,10 @@ func (s *LowerShadowTakeProfit) Bind(session *ExchangeSession, orderExecutor *Ge
 	stdIndicatorSet := session.StandardIndicatorSet(s.Symbol)
 	ewma := stdIndicatorSet.EWMA(s.IntervalWindow)
 
-
 	position := orderExecutor.Position()
 	session.MarketDataStream.OnKLineClosed(types.KLineWith(s.Symbol, s.Interval, func(kline types.KLine) {
 		closePrice := kline.Close
-		if position.IsClosed() || position.IsDust(closePrice) {
+		if position.IsClosed() || position.IsDust(closePrice) || position.IsClosing() {
 			return
 		}
 
@@ -48,7 +47,7 @@ func (s *LowerShadowTakeProfit) Bind(session *ExchangeSession, orderExecutor *Ge
 		}
 
 		// skip close price higher than the ewma
-		if closePrice.Float64() > ewma.Last() {
+		if closePrice.Float64() > ewma.Last(0) {
 			return
 		}
 

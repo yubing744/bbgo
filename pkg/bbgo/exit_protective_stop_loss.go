@@ -9,8 +9,6 @@ import (
 	"github.com/c9s/bbgo/pkg/types"
 )
 
-const enableMarketTradeStop = false
-
 // ProtectiveStopLoss provides a way to protect your profit but also keep a room for the price volatility
 // Set ActivationRatio to 1% means if the price is away from your average cost by 1%, we will activate the protective stop loss
 // and the StopLossRatio is the minimal profit ratio you want to keep for your position.
@@ -32,6 +30,10 @@ type ProtectiveStopLoss struct {
 	// PlaceStopOrder places the stop order on exchange and lock the balance
 	PlaceStopOrder bool `json:"placeStopOrder"`
 
+	// Interval is the time resolution to update the stop order
+	// KLine per Interval will be used for updating the stop order
+	Interval types.Interval `json:"interval,omitempty"`
+
 	session       *ExchangeSession
 	orderExecutor *GeneralOrderExecutor
 	stopLossPrice fixedpoint.Value
@@ -39,8 +41,11 @@ type ProtectiveStopLoss struct {
 }
 
 func (s *ProtectiveStopLoss) Subscribe(session *ExchangeSession) {
-	// use 1m kline to handle roi stop
-	session.Subscribe(types.KLineChannel, s.Symbol, types.SubscribeOptions{Interval: types.Interval1m})
+	if s.Interval == "" {
+		s.Interval = types.Interval1m
+	}
+	// use kline to handle roi stop
+	session.Subscribe(types.KLineChannel, s.Symbol, types.SubscribeOptions{Interval: s.Interval})
 }
 
 func (s *ProtectiveStopLoss) shouldActivate(position *types.Position, closePrice fixedpoint.Value) bool {
@@ -124,14 +129,17 @@ func (s *ProtectiveStopLoss) Bind(session *ExchangeSession, orderExecutor *Gener
 	})
 
 	position := orderExecutor.Position()
-	session.MarketDataStream.OnKLineClosed(types.KLineWith(s.Symbol, types.Interval1m, func(kline types.KLine) {
+
+	f := func(kline types.KLine) {
 		isPositionOpened := !position.IsClosed() && !position.IsDust(kline.Close)
 		if isPositionOpened {
 			s.handleChange(context.Background(), position, kline.Close, s.orderExecutor)
 		} else {
 			s.stopLossPrice = fixedpoint.Zero
 		}
-	}))
+	}
+	session.MarketDataStream.OnKLineClosed(types.KLineWith(s.Symbol, s.Interval, f))
+	session.MarketDataStream.OnKLine(types.KLineWith(s.Symbol, s.Interval, f))
 
 	if !IsBackTesting && enableMarketTradeStop {
 		session.MarketDataStream.OnMarketTrade(func(trade types.Trade) {
@@ -170,8 +178,12 @@ func (s *ProtectiveStopLoss) handleChange(ctx context.Context, position *types.P
 				s.stopLossPrice = position.AverageCost.Mul(one.Add(s.StopLossRatio))
 			}
 
-			Notify("[ProtectiveStopLoss] %s protection stop loss activated, current price = %f, average cost = %f, stop loss price = %f",
-				position.Symbol, closePrice.Float64(), position.AverageCost.Float64(), s.stopLossPrice.Float64())
+			Notify("[ProtectiveStopLoss] %s protection (%s) stop loss activated, SL = %f, currentPrice = %f, averageCost = %f",
+				position.Symbol,
+				s.StopLossRatio.Percentage(),
+				s.stopLossPrice.Float64(),
+				closePrice.Float64(),
+				position.AverageCost.Float64())
 
 			if s.PlaceStopOrder {
 				if err := s.placeStopOrder(ctx, position, orderExecutor); err != nil {
@@ -195,7 +207,11 @@ func (s *ProtectiveStopLoss) checkStopPrice(closePrice fixedpoint.Value, positio
 	}
 
 	if s.shouldStop(closePrice, position) {
-		Notify("[ProtectiveStopLoss] protection stop order is triggered at price %f", closePrice.Float64(), position)
+		Notify("[ProtectiveStopLoss] %s protection stop (%s) is triggered at price %f",
+			s.Symbol,
+			s.StopLossRatio.Percentage(),
+			closePrice.Float64(),
+			position)
 		if err := s.orderExecutor.ClosePosition(context.Background(), one, "protectiveStopLoss"); err != nil {
 			log.WithError(err).Errorf("failed to close position")
 		}

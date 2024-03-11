@@ -1,12 +1,31 @@
 package bbgo
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
 const delta = 1e-9
+
+func TestLayerScale_UnmarshalJSON(t *testing.T) {
+	var s LayerScale
+	err := json.Unmarshal([]byte(`{
+		"byLayer": {
+			"linear": {
+				"domain": [ 1, 3 ],
+				"range": [ 10000.0, 30000.0 ]
+			}
+		}
+	}`), &s)
+	assert.NoError(t, err)
+
+	if assert.NotNil(t, s.LayerRule) {
+		assert.NotNil(t, s.LayerRule.LinearScale.Range)
+		assert.NotNil(t, s.LayerRule.LinearScale.Domain)
+	}
+}
 
 func TestExponentialScale(t *testing.T) {
 	// graph see: https://www.desmos.com/calculator/ip0ijbcbbf
@@ -73,8 +92,9 @@ func TestLinearScale(t *testing.T) {
 
 	err := scale.Solve()
 	assert.NoError(t, err)
-	assert.Equal(t, "f(x) = 0.007000 * x + -4.000000", scale.String())
+	assert.Equal(t, "f(x) = 3.000000 + (x - 1000.000000) * 0.007000", scale.String())
 	assert.InDelta(t, 3, scale.Call(1000), delta)
+	assert.InDelta(t, 6.5, scale.Call(1500), delta)
 	assert.InDelta(t, 10, scale.Call(2000), delta)
 	for x := 1000; x <= 2000; x += 100 {
 		y := scale.Call(float64(x))
@@ -90,8 +110,23 @@ func TestLinearScale2(t *testing.T) {
 
 	err := scale.Solve()
 	assert.NoError(t, err)
-	assert.Equal(t, "f(x) = 0.150000 * x + -0.050000", scale.String())
+	assert.Equal(t, "f(x) = 0.100000 + (x - 1.000000) * 0.150000", scale.String())
 	assert.InDelta(t, 0.1, scale.Call(1), delta)
+	assert.InDelta(t, 0.25, scale.Call(2), delta)
+	assert.InDelta(t, 0.4, scale.Call(3), delta)
+}
+
+func TestLinearScaleNegative(t *testing.T) {
+	scale := LinearScale{
+		Domain: [2]float64{-1, 3},
+		Range:  [2]float64{0.1, 0.4},
+	}
+
+	err := scale.Solve()
+	assert.NoError(t, err)
+	assert.Equal(t, "f(x) = 0.100000 + (x - -1.000000) * 0.075000", scale.String())
+	assert.InDelta(t, 0.1, scale.Call(-1), delta)
+	assert.InDelta(t, 0.25, scale.Call(1), delta)
 	assert.InDelta(t, 0.4, scale.Call(3), delta)
 }
 

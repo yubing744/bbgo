@@ -46,12 +46,9 @@ type Stream struct {
 	kLineEventCallbacks       []func(e *KLineEvent)
 	kLineClosedEventCallbacks []func(e *KLineEvent)
 
-	markPriceUpdateEventCallbacks []func(e *MarkPriceUpdateEvent)
-	marketTradeEventCallbacks     []func(e *MarketTradeEvent)
-	aggTradeEventCallbacks        []func(e *AggTradeEvent)
-
-	continuousKLineEventCallbacks       []func(e *ContinuousKLineEvent)
-	continuousKLineClosedEventCallbacks []func(e *ContinuousKLineEvent)
+	marketTradeEventCallbacks []func(e *MarketTradeEvent)
+	aggTradeEventCallbacks    []func(e *AggTradeEvent)
+	forceOrderEventCallbacks  []func(e *ForceOrderEvent)
 
 	balanceUpdateEventCallbacks           []func(event *BalanceUpdateEvent)
 	outboundAccountInfoEventCallbacks     []func(event *OutboundAccountInfoEvent)
@@ -59,12 +56,19 @@ type Stream struct {
 	executionReportEventCallbacks         []func(event *ExecutionReportEvent)
 	bookTickerEventCallbacks              []func(event *BookTickerEvent)
 
+	// futures market data stream
+	markPriceUpdateEventCallbacks       []func(e *MarkPriceUpdateEvent)
+	continuousKLineEventCallbacks       []func(e *ContinuousKLineEvent)
+	continuousKLineClosedEventCallbacks []func(e *ContinuousKLineEvent)
+
+	// futures user data stream event callbacks
 	orderTradeUpdateEventCallbacks    []func(e *OrderTradeUpdateEvent)
 	accountUpdateEventCallbacks       []func(e *AccountUpdateEvent)
 	accountConfigUpdateEventCallbacks []func(e *AccountConfigUpdateEvent)
+	marginCallEventCallbacks          []func(e *MarginCallEvent)
+	listenKeyExpiredCallbacks         []func(e *ListenKeyExpired)
 
-	listenKeyExpiredCallbacks []func(e *ListenKeyExpired)
-
+	// depthBuffers is used for storing the depth info
 	depthBuffers map[string]*depth.Buffer
 }
 
@@ -85,6 +89,7 @@ func NewStream(ex *Exchange, client *binance.Client, futuresClient *futures.Clie
 		if ok {
 			err := f.AddUpdate(types.SliceOrderBook{
 				Symbol: e.Symbol,
+				Time:   e.EventBase.Time.Time(),
 				Bids:   e.Bids,
 				Asks:   e.Asks,
 			}, e.FirstUpdateID, e.FinalUpdateID)
@@ -122,11 +127,14 @@ func NewStream(ex *Exchange, client *binance.Client, futuresClient *futures.Clie
 	stream.OnContinuousKLineEvent(stream.handleContinuousKLineEvent)
 	stream.OnMarketTradeEvent(stream.handleMarketTradeEvent)
 	stream.OnAggTradeEvent(stream.handleAggTradeEvent)
+	stream.OnForceOrderEvent(stream.handleForceOrderEvent)
 
+	// Futures User Data Stream
+	// ===================================
 	// Event type ACCOUNT_UPDATE from user data stream updates Balance and FuturesPosition.
-	stream.OnAccountUpdateEvent(stream.handleAccountUpdateEvent)
-	stream.OnAccountConfigUpdateEvent(stream.handleAccountConfigUpdateEvent)
 	stream.OnOrderTradeUpdateEvent(stream.handleOrderTradeUpdateEvent)
+	// ===================================
+
 	stream.OnDisconnect(stream.handleDisconnect)
 	stream.OnConnect(stream.handleConnect)
 	stream.OnListenKeyExpired(func(e *ListenKeyExpired) {
@@ -144,6 +152,9 @@ func (s *Stream) handleDisconnect() {
 
 func (s *Stream) handleConnect() {
 	if !s.PublicOnly {
+		// Emit Auth before establishing the connection to prevent the caller from missing the Update data after
+		// creating the order.
+		s.EmitAuth()
 		return
 	}
 
@@ -224,6 +235,10 @@ func (s *Stream) handleAggTradeEvent(e *AggTradeEvent) {
 	s.EmitAggTrade(e.Trade())
 }
 
+func (s *Stream) handleForceOrderEvent(e *ForceOrderEvent) {
+	s.EmitForceOrder(e.LiquidationInfo())
+}
+
 func (s *Stream) handleKLineEvent(e *KLineEvent) {
 	kline := e.KLine.KLine()
 	if e.KLine.Closed {
@@ -244,18 +259,6 @@ func (s *Stream) handleOutboundAccountPositionEvent(e *OutboundAccountPositionEv
 		}
 	}
 	s.EmitBalanceSnapshot(snapshot)
-}
-
-func (s *Stream) handleAccountUpdateEvent(e *AccountUpdateEvent) {
-	futuresPositionSnapshot := toGlobalFuturesPositions(e.AccountUpdate.Positions)
-	s.EmitFuturesPositionSnapshot(futuresPositionSnapshot)
-
-	balanceSnapshot := toGlobalFuturesBalance(e.AccountUpdate.Balances)
-	s.EmitBalanceSnapshot(balanceSnapshot)
-}
-
-// TODO: emit account config leverage updates
-func (s *Stream) handleAccountConfigUpdateEvent(e *AccountConfigUpdateEvent) {
 }
 
 func (s *Stream) handleOrderTradeUpdateEvent(e *OrderTradeUpdateEvent) {
@@ -380,6 +383,11 @@ func (s *Stream) dispatchEvent(e interface{}) {
 
 	case *ListenKeyExpired:
 		s.EmitListenKeyExpired(e)
+
+	case *ForceOrderEvent:
+		s.EmitForceOrderEvent(e)
+
+	case *MarginCallEvent:
 
 	}
 }

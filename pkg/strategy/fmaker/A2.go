@@ -21,7 +21,7 @@ type A2 struct {
 	UpdateCallbacks []func(val float64)
 }
 
-func (inc *A2) Last() float64 {
+func (inc *A2) Last(int) float64 {
 	if len(inc.Values) == 0 {
 		return 0.0
 	}
@@ -42,7 +42,7 @@ func (inc *A2) CalculateAndUpdate(klines []types.KLine) {
 
 	var recentT = klines[end-(inc.Window-1) : end+1]
 
-	val, err := calculateA2(recentT, KLineLowPriceMapper, KLineHighPriceMapper, indicator.KLineClosePriceMapper)
+	val, err := calculateA2(recentT, KLineLowPriceMapper, KLineHighPriceMapper, types.KLineClosePriceMapper)
 	if err != nil {
 		log.WithError(err).Error("can not calculate")
 		return
@@ -88,8 +88,8 @@ func calculateA2(klines []types.KLine, valLow KLineValueMapper, valHigh KLineVal
 		closes.Push(valClose(k))
 	}
 
-	prev := ((closes.Index(1) - lows.Index(1)) - (highs.Index(1) - closes.Index(1))) / (highs.Index(1) - lows.Index(1))
-	curr := ((closes.Index(0) - lows.Index(0)) - (highs.Index(0) - closes.Index(0))) / (highs.Index(0) - lows.Index(0))
+	prev := ((closes.Last(1) - lows.Index(1)) - (highs.Index(1) - closes.Index(1))) / (highs.Index(1) - lows.Index(1))
+	curr := ((closes.Last(0) - lows.Index(0)) - (highs.Index(0) - closes.Index(0))) / (highs.Index(0) - lows.Index(0))
 	alpha := (curr - prev) * -1 // delta(1 interval)
 
 	return alpha, nil

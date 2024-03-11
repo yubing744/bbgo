@@ -16,8 +16,8 @@ import (
 )
 
 // Strategy method calls:
-// -> Defaults()   (optional method)
 // -> Initialize()   (optional method)
+// -> Defaults()     (optional method)
 // -> Validate()     (optional method)
 // -> Run()          (optional method)
 // -> Shutdown(shutdownCtx context.Context, wg *sync.WaitGroup)
@@ -88,6 +88,8 @@ type Trader struct {
 	crossExchangeStrategies []CrossExchangeStrategy
 	exchangeStrategies      map[string][]SingleExchangeStrategy
 
+	// gracefulShutdown is used for registering strategy's Shutdown calls
+	// when strategy implements Shutdown(ctx), the func ref will be stored in the callback.
 	gracefulShutdown GracefulShutdown
 
 	logger Logger
@@ -166,7 +168,9 @@ func (trader *Trader) SetRiskControls(riskControls *RiskControls) {
 	trader.riskControls = riskControls
 }
 
-func (trader *Trader) RunSingleExchangeStrategy(ctx context.Context, strategy SingleExchangeStrategy, session *ExchangeSession, orderExecutor OrderExecutor) error {
+func (trader *Trader) RunSingleExchangeStrategy(
+	ctx context.Context, strategy SingleExchangeStrategy, session *ExchangeSession, orderExecutor OrderExecutor,
+) error {
 	if v, ok := strategy.(StrategyValidator); ok {
 		if err := v.Validate(); err != nil {
 			return fmt.Errorf("failed to validate the config: %w", err)
@@ -220,7 +224,6 @@ func (trader *Trader) injectFieldsAndSubscribe(ctx context.Context) error {
 	// load and run Session strategies
 	for sessionName, strategies := range trader.exchangeStrategies {
 		var session = trader.environment.sessions[sessionName]
-		var orderExecutor = trader.getSessionOrderExecutor(sessionName)
 		for _, strategy := range strategies {
 			rs := reflect.ValueOf(strategy)
 
@@ -231,22 +234,12 @@ func (trader *Trader) injectFieldsAndSubscribe(ctx context.Context) error {
 				return errors.New("strategy object is not a struct")
 			}
 
-			if err := trader.injectCommonServices(strategy); err != nil {
+			if err := trader.injectCommonServices(ctx, strategy); err != nil {
 				return err
-			}
-
-			if err := dynamic.InjectField(rs, "OrderExecutor", orderExecutor, false); err != nil {
-				return errors.Wrapf(err, "failed to inject OrderExecutor on %T", strategy)
 			}
 
 			if defaulter, ok := strategy.(StrategyDefaulter); ok {
 				if err := defaulter.Defaults(); err != nil {
-					panic(err)
-				}
-			}
-
-			if initializer, ok := strategy.(StrategyInitializer); ok {
-				if err := initializer.Initialize(); err != nil {
 					panic(err)
 				}
 			}
@@ -257,7 +250,7 @@ func (trader *Trader) injectFieldsAndSubscribe(ctx context.Context) error {
 				log.Errorf("strategy %s does not implement ExchangeSessionSubscriber", strategy.ID())
 			}
 
-			if symbol, ok := dynamic.LookupSymbolField(rs); ok {
+			if symbol, ok := dynamic.LookupSymbolField(rs); ok && symbol != "" {
 				log.Infof("found symbol %s based strategy from %s", symbol, rs.Type())
 
 				if err := session.initSymbol(ctx, trader.environment, symbol); err != nil {
@@ -301,7 +294,7 @@ func (trader *Trader) injectFieldsAndSubscribe(ctx context.Context) error {
 			continue
 		}
 
-		if err := trader.injectCommonServices(strategy); err != nil {
+		if err := trader.injectCommonServices(ctx, strategy); err != nil {
 			return err
 		}
 
@@ -363,19 +356,25 @@ func (trader *Trader) Run(ctx context.Context) error {
 	return trader.environment.Connect(ctx)
 }
 
-func (trader *Trader) LoadState() error {
+func (trader *Trader) Initialize(ctx context.Context) error {
+	return trader.IterateStrategies(func(strategy StrategyID) error {
+		if initializer, ok := strategy.(StrategyInitializer); ok {
+			return initializer.Initialize()
+		}
+
+		return nil
+	})
+}
+
+func (trader *Trader) LoadState(ctx context.Context) error {
 	if trader.environment.BacktestService != nil {
 		return nil
 	}
 
-	if persistenceServiceFacade == nil {
-		return nil
-	}
-
-	ps := persistenceServiceFacade.Get()
+	isolation := GetIsolationFromContext(ctx)
+	ps := isolation.persistenceServiceFacade.Get()
 
 	log.Infof("loading strategies states...")
-
 	return trader.IterateStrategies(func(strategy StrategyID) error {
 		id := dynamic.CallID(strategy)
 		return loadPersistenceFields(strategy, id, ps)
@@ -400,18 +399,17 @@ func (trader *Trader) IterateStrategies(f func(st StrategyID) error) error {
 	return nil
 }
 
-func (trader *Trader) SaveState() error {
+// NOTICE: the ctx here is the trading context, which could already be canceled.
+func (trader *Trader) SaveState(ctx context.Context) error {
 	if trader.environment.BacktestService != nil {
 		return nil
 	}
 
-	if persistenceServiceFacade == nil {
-		return nil
-	}
+	isolation := GetIsolationFromContext(ctx)
 
-	ps := persistenceServiceFacade.Get()
+	ps := isolation.persistenceServiceFacade.Get()
 
-	log.Infof("saving strategies states...")
+	log.Debugf("saving strategy persistence states...")
 	return trader.IterateStrategies(func(strategy StrategyID) error {
 		id := dynamic.CallID(strategy)
 		if len(id) == 0 {
@@ -426,7 +424,11 @@ func (trader *Trader) Shutdown(ctx context.Context) {
 	trader.gracefulShutdown.Shutdown(ctx)
 }
 
-func (trader *Trader) injectCommonServices(s interface{}) error {
+func (trader *Trader) injectCommonServices(ctx context.Context, s interface{}) error {
+	isolation := GetIsolationFromContext(ctx)
+
+	ps := isolation.persistenceServiceFacade
+
 	// a special injection for persistence selector:
 	// if user defined the selector, the facade pointer will be nil, hence we need to update the persistence facade pointer
 	sv := reflect.ValueOf(s).Elem()
@@ -438,7 +440,7 @@ func (trader *Trader) injectCommonServices(s interface{}) error {
 				return fmt.Errorf("field Persistence is not a struct element, %s given", field)
 			}
 
-			if err := dynamic.InjectField(elem, "Facade", persistenceServiceFacade, true); err != nil {
+			if err := dynamic.InjectField(elem.Interface(), "Facade", ps, true); err != nil {
 				return err
 			}
 
@@ -458,6 +460,6 @@ func (trader *Trader) injectCommonServices(s interface{}) error {
 		trader.environment.DatabaseService,
 		trader.environment.AccountService,
 		trader.environment,
-		persistenceServiceFacade, // if the strategy use persistence facade separately
+		ps, // if the strategy use persistence facade separately
 	)
 }

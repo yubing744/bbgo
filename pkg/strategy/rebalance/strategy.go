@@ -3,7 +3,9 @@ package rebalance
 import (
 	"context"
 	"fmt"
+	"sync"
 
+	"github.com/robfig/cron/v3"
 	"github.com/sirupsen/logrus"
 
 	"github.com/c9s/bbgo/pkg/bbgo"
@@ -14,28 +16,69 @@ import (
 const ID = "rebalance"
 
 var log = logrus.WithField("strategy", ID)
+var two = fixedpoint.NewFromFloat(2.0)
 
 func init() {
 	bbgo.RegisterStrategy(ID, &Strategy{})
 }
 
 type Strategy struct {
-	Interval      types.Interval   `json:"interval"`
-	QuoteCurrency string           `json:"quoteCurrency"`
-	TargetWeights types.ValueMap   `json:"targetWeights"`
-	Threshold     fixedpoint.Value `json:"threshold"`
-	DryRun        bool             `json:"dryRun"`
-	// max amount to buy or sell per order
-	MaxAmount fixedpoint.Value `json:"maxAmount"`
+	*MultiMarketStrategy
 
+	Environment *bbgo.Environment
+
+	Schedule      string            `json:"schedule"`
+	QuoteCurrency string            `json:"quoteCurrency"`
+	TargetWeights types.ValueMap    `json:"targetWeights"`
+	Threshold     fixedpoint.Value  `json:"threshold"`
+	MaxAmount     fixedpoint.Value  `json:"maxAmount"` // max amount to buy or sell per order
+	OrderType     types.OrderType   `json:"orderType"`
+	PriceType     types.PriceType   `json:"priceType"`
+	BalanceType   types.BalanceType `json:"balanceType"`
+	DryRun        bool              `json:"dryRun"`
+	OnStart       bool              `json:"onStart"` // rebalance on start
+
+	symbols         []string
+	markets         map[string]types.Market
 	activeOrderBook *bbgo.ActiveOrderBook
+	cron            *cron.Cron
+}
+
+func (s *Strategy) Defaults() error {
+	if s.OrderType == "" {
+		s.OrderType = types.OrderTypeLimitMaker
+	}
+
+	if s.PriceType == "" {
+		s.PriceType = types.PriceTypeMaker
+	}
+
+	if s.BalanceType == "" {
+		s.BalanceType = types.BalanceTypeAvailable
+	}
+	return nil
 }
 
 func (s *Strategy) Initialize() error {
+	if s.MultiMarketStrategy == nil {
+		s.MultiMarketStrategy = &MultiMarketStrategy{}
+	}
+
+	for currency := range s.TargetWeights {
+		if currency == s.QuoteCurrency {
+			continue
+		}
+
+		s.symbols = append(s.symbols, currency+s.QuoteCurrency)
+	}
 	return nil
 }
 
 func (s *Strategy) ID() string {
+	return ID
+}
+
+func (s *Strategy) InstanceID() string {
 	return ID
 }
 
@@ -61,59 +104,82 @@ func (s *Strategy) Validate() error {
 	if s.MaxAmount.Sign() < 0 {
 		return fmt.Errorf("maxAmount shoud not less than 0")
 	}
-
 	return nil
 }
 
-func (s *Strategy) Subscribe(session *bbgo.ExchangeSession) {
-	for _, symbol := range s.symbols() {
-		session.Subscribe(types.KLineChannel, symbol, types.SubscribeOptions{Interval: s.Interval})
-	}
-}
+func (s *Strategy) Subscribe(session *bbgo.ExchangeSession) {}
 
-func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, session *bbgo.ExchangeSession) error {
+func (s *Strategy) Run(ctx context.Context, _ bbgo.OrderExecutor, session *bbgo.ExchangeSession) error {
+	s.markets = make(map[string]types.Market)
+	for _, symbol := range s.symbols {
+		market, ok := session.Market(symbol)
+		if !ok {
+			return fmt.Errorf("market %s not found", symbol)
+		}
+		s.markets[symbol] = market
+	}
+
+	s.MultiMarketStrategy.Initialize(ctx, s.Environment, session, s.markets, ID, s.InstanceID())
+
 	s.activeOrderBook = bbgo.NewActiveOrderBook("")
 	s.activeOrderBook.BindStream(session.UserDataStream)
-
-	markets := session.Markets()
-	for _, symbol := range s.symbols() {
-		if _, ok := markets[symbol]; !ok {
-			return fmt.Errorf("exchange: %s does not supoort matket: %s", session.Exchange.Name(), symbol)
-		}
-	}
-
-	session.MarketDataStream.OnKLineClosed(func(kline types.KLine) {
-		s.rebalance(ctx, orderExecutor, session)
+	s.activeOrderBook.OnFilled(func(order types.Order) {
+		s.rebalance(ctx)
 	})
+
+	session.UserDataStream.OnStart(func() {
+		if s.OnStart {
+			s.rebalance(ctx)
+		}
+	})
+
+	// the shutdown handler, you can cancel all orders
+	bbgo.OnShutdown(ctx, func(ctx context.Context, wg *sync.WaitGroup) {
+		defer wg.Done()
+		_ = s.OrderExecutorMap.GracefulCancel(ctx)
+	})
+
+	s.cron = cron.New()
+	s.cron.AddFunc(s.Schedule, func() {
+		s.rebalance(ctx)
+	})
+	s.cron.Start()
 
 	return nil
 }
 
-func (s *Strategy) rebalance(ctx context.Context, orderExecutor bbgo.OrderExecutor, session *bbgo.ExchangeSession) {
+func (s *Strategy) rebalance(ctx context.Context) {
 	// cancel active orders before rebalance
-	if err := session.Exchange.CancelOrders(ctx, s.activeOrderBook.Orders()...); err != nil {
+	if err := s.activeOrderBook.GracefulCancel(ctx, s.Session.Exchange); err != nil {
 		log.WithError(err).Errorf("failed to cancel orders")
 	}
 
-	submitOrders := s.generateSubmitOrders(ctx, session)
-	for _, order := range submitOrders {
-		log.Infof("generated submit order: %s", order.String())
-	}
-
-	if s.DryRun {
+	order, err := s.generateOrder(ctx)
+	if err != nil {
+		log.WithError(err).Error("failed to generate order")
 		return
 	}
 
-	createdOrders, err := orderExecutor.SubmitOrders(ctx, submitOrders...)
+	if order == nil {
+		log.Info("no order generated")
+		return
+	}
+	log.Infof("generated order: %s", order.String())
+
+	if s.DryRun {
+		log.Infof("dry run, not submitting orders")
+		return
+	}
+
+	createdOrders, err := s.OrderExecutorMap.SubmitOrders(ctx, *order)
 	if err != nil {
 		log.WithError(err).Error("failed to submit orders")
 		return
 	}
-
 	s.activeOrderBook.Add(createdOrders...)
 }
 
-func (s *Strategy) prices(ctx context.Context, session *bbgo.ExchangeSession) types.ValueMap {
+func (s *Strategy) queryMidPrices(ctx context.Context) (types.ValueMap, error) {
 	m := make(types.ValueMap)
 	for currency := range s.TargetWeights {
 		if currency == s.QuoteCurrency {
@@ -121,62 +187,60 @@ func (s *Strategy) prices(ctx context.Context, session *bbgo.ExchangeSession) ty
 			continue
 		}
 
-		ticker, err := session.Exchange.QueryTicker(ctx, currency+s.QuoteCurrency)
+		ticker, err := s.Session.Exchange.QueryTicker(ctx, currency+s.QuoteCurrency)
 		if err != nil {
-			log.WithError(err).Error("failed to query tickers")
-			return nil
+			return nil, err
 		}
 
-		m[currency] = ticker.Last
+		m[currency] = ticker.Buy.Add(ticker.Sell).Div(two)
 	}
-	return m
+	return m, nil
 }
 
-func (s *Strategy) quantities(session *bbgo.ExchangeSession) types.ValueMap {
-	m := make(types.ValueMap)
-
-	balances := session.GetAccount().Balances()
+func (s *Strategy) selectBalances() (types.BalanceMap, error) {
+	m := make(types.BalanceMap)
+	balances := s.Session.GetAccount().Balances()
 	for currency := range s.TargetWeights {
-		m[currency] = balances[currency].Total()
+		balance, ok := balances[currency]
+		if !ok {
+			return nil, fmt.Errorf("no balance for %s", currency)
+		}
+		m[currency] = balance
 	}
-
-	return m
+	return m, nil
 }
 
-func (s *Strategy) generateSubmitOrders(ctx context.Context, session *bbgo.ExchangeSession) (submitOrders []types.SubmitOrder) {
-	prices := s.prices(ctx, session)
-	marketValues := prices.Mul(s.quantities(session))
-	currentWeights := marketValues.Normalize()
+func (s *Strategy) generateOrder(ctx context.Context) (*types.SubmitOrder, error) {
+	prices, err := s.queryMidPrices(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	for currency, targetWeight := range s.TargetWeights {
-		if currency == s.QuoteCurrency {
-			continue
-		}
+	balances, err := s.selectBalances()
+	if err != nil {
+		return nil, err
+	}
 
-		symbol := currency + s.QuoteCurrency
-		currentWeight := currentWeights[currency]
-		currentPrice := prices[currency]
+	values := prices.Mul(s.toValueMap(balances))
+	weights := values.Normalize()
 
-		log.Infof("%s price: %v, current weight: %v, target weight: %v",
-			symbol,
-			currentPrice,
-			currentWeight,
-			targetWeight)
+	for symbol, market := range s.markets {
+		target := s.TargetWeights[market.BaseCurrency]
+		weight := weights[market.BaseCurrency]
+		midPrice := prices[market.BaseCurrency]
+
+		log.Infof("%s mid price: %s", symbol, midPrice.String())
+		log.Infof("%s weight: %.2f%%, target: %.2f%%", market.BaseCurrency, weight.Float64()*100, target.Float64()*100)
 
 		// calculate the difference between current weight and target weight
 		// if the difference is less than threshold, then we will not create the order
-		weightDifference := targetWeight.Sub(currentWeight)
-		if weightDifference.Abs().Compare(s.Threshold) < 0 {
-			log.Infof("%s weight distance |%v - %v| = |%v| less than the threshold: %v",
-				symbol,
-				currentWeight,
-				targetWeight,
-				weightDifference,
-				s.Threshold)
+		diff := target.Sub(weight)
+		if diff.Abs().Compare(s.Threshold) < 0 {
+			log.Infof("%s weight is close to target, skip", market.BaseCurrency)
 			continue
 		}
 
-		quantity := weightDifference.Mul(marketValues.Sum()).Div(currentPrice)
+		quantity := diff.Mul(values.Sum()).Div(midPrice)
 
 		side := types.SideTypeBuy
 		if quantity.Sign() < 0 {
@@ -184,38 +248,53 @@ func (s *Strategy) generateSubmitOrders(ctx context.Context, session *bbgo.Excha
 			quantity = quantity.Abs()
 		}
 
-		if s.MaxAmount.Sign() > 0 {
-			quantity = bbgo.AdjustQuantityByMaxAmount(quantity, currentPrice, s.MaxAmount)
-			log.Infof("adjust the quantity %v (%s %s @ %v) by max amount %v",
-				quantity,
+		ticker, err := s.Session.Exchange.QueryTicker(ctx, symbol)
+		if err != nil {
+			return nil, err
+		}
+
+		if side == types.SideTypeBuy {
+			quantity = fixedpoint.Min(quantity, balances[s.QuoteCurrency].Available.Div(ticker.Sell))
+		} else if side == types.SideTypeSell {
+			quantity = fixedpoint.Min(quantity, balances[market.BaseCurrency].Available)
+		}
+
+		price := s.PriceType.Map(ticker, side)
+
+		if s.MaxAmount.Float64() > 0 {
+			quantity = bbgo.AdjustQuantityByMaxAmount(quantity, price, s.MaxAmount)
+			log.Infof("adjusted quantity %s (%s %s @ %s) by max amount %s",
+				quantity.String(),
 				symbol,
 				side.String(),
-				currentPrice,
-				s.MaxAmount)
+				price.String(),
+				s.MaxAmount.String())
 		}
 
-		log.Debugf("symbol: %v, quantity: %v", symbol, quantity)
-
-		order := types.SubmitOrder{
-			Symbol:   symbol,
-			Side:     side,
-			Type:     types.OrderTypeLimit,
-			Quantity: quantity,
-			Price:    currentPrice,
-		}
-
-		submitOrders = append(submitOrders, order)
-	}
-
-	return submitOrders
-}
-
-func (s *Strategy) symbols() (symbols []string) {
-	for currency := range s.TargetWeights {
-		if currency == s.QuoteCurrency {
+		if market.IsDustQuantity(quantity, price) {
+			log.Infof("quantity %s (%s %s @ %s) is dust quantity, skip",
+				quantity.String(),
+				symbol,
+				side.String(),
+				price.String())
 			continue
 		}
-		symbols = append(symbols, currency+s.QuoteCurrency)
+
+		return &types.SubmitOrder{
+			Symbol:   symbol,
+			Side:     side,
+			Type:     s.OrderType,
+			Quantity: quantity,
+			Price:    price,
+		}, nil
 	}
-	return symbols
+	return nil, nil
+}
+
+func (s *Strategy) toValueMap(balances types.BalanceMap) types.ValueMap {
+	m := make(types.ValueMap)
+	for _, b := range balances {
+		m[b.Currency] = s.BalanceType.Map(b)
+	}
+	return m
 }

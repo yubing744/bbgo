@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/c9s/bbgo/pkg/types"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/c9s/bbgo/pkg/types"
 )
 
 /*
@@ -19,7 +20,7 @@ print(cci)
 func Test_CCI(t *testing.T) {
 	var randomPrices = []byte(`[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]`)
 	var input []float64
-	var Delta = 4.3e-2
+	var delta = 4.3e-2
 	if err := json.Unmarshal(randomPrices, &input); err != nil {
 		panic(err)
 	}
@@ -29,9 +30,9 @@ func Test_CCI(t *testing.T) {
 			cci.Update(value)
 		}
 
-		last := cci.Last()
-		assert.InDelta(t, 93.250481, last, Delta)
-		assert.InDelta(t, 81.813449, cci.Index(1), Delta)
+		last := cci.Last(0)
+		assert.InDelta(t, 93.250481, last, delta)
+		assert.InDelta(t, 81.813449, cci.Index(1), delta)
 		assert.Equal(t, 50-16+1, cci.Length())
 	})
 }

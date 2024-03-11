@@ -3,8 +3,12 @@ package linregmaker
 import (
 	"context"
 	"fmt"
-	"github.com/c9s/bbgo/pkg/risk/dynamicrisk"
+	"github.com/c9s/bbgo/pkg/report"
+	"os"
+	"strconv"
 	"sync"
+
+	"github.com/c9s/bbgo/pkg/risk/dynamicrisk"
 
 	"github.com/c9s/bbgo/pkg/indicator"
 	"github.com/c9s/bbgo/pkg/util"
@@ -118,6 +122,14 @@ type Strategy struct {
 	// UseDynamicQuantityAsAmount calculates amount instead of quantity
 	UseDynamicQuantityAsAmount bool `json:"useDynamicQuantityAsAmount"`
 
+	// MinProfitSpread is the minimal order price spread from the current average cost.
+	// For long position, you will only place sell order above the price (= average cost * (1 + minProfitSpread))
+	// For short position, you will only place buy order below the price (= average cost * (1 - minProfitSpread))
+	MinProfitSpread fixedpoint.Value `json:"minProfitSpread"`
+
+	// MinProfitActivationRate activates MinProfitSpread when position RoI higher than the specified percentage
+	MinProfitActivationRate fixedpoint.Value `json:"minProfitActivationRate"`
+
 	// ExitMethods are various TP/SL methods
 	ExitMethods bbgo.ExitMethodSet `json:"exits"`
 
@@ -125,6 +137,10 @@ type Strategy struct {
 	Position    *types.Position    `persistence:"position"`
 	ProfitStats *types.ProfitStats `persistence:"profit_stats"`
 	TradeStats  *types.TradeStats  `persistence:"trade_stats"`
+
+	// ProfitStatsTracker tracks profit related status and generates report
+	ProfitStatsTracker *report.ProfitStatsTracker `json:"profitStatsTracker"`
+	TrackParameters    bool                       `json:"trackParameters"`
 
 	Environment          *bbgo.Environment
 	StandardIndicatorSet *bbgo.StandardIndicatorSet
@@ -179,8 +195,6 @@ func (s *Strategy) Subscribe(session *bbgo.ExchangeSession) {
 	session.Subscribe(types.KLineChannel, s.Symbol, types.SubscribeOptions{
 		Interval: s.ReverseEMA.Interval,
 	})
-	// Initialize ReverseEMA
-	s.ReverseEMA = s.StandardIndicatorSet.EWMA(s.ReverseEMA.IntervalWindow)
 
 	// Subscribe for ReverseInterval. Use interval of ReverseEMA if ReverseInterval is omitted
 	if s.ReverseInterval == "" {
@@ -214,28 +228,31 @@ func (s *Strategy) Subscribe(session *bbgo.ExchangeSession) {
 			Interval: s.NeutralBollinger.Interval,
 		})
 	}
-	// Initialize BBs
-	s.neutralBoll = s.StandardIndicatorSet.BOLL(s.NeutralBollinger.IntervalWindow, s.NeutralBollinger.BandWidth)
 
-	// Setup Exits
+	// Initialize Exits
 	s.ExitMethods.SetAndSubscribe(session, s)
 
-	// Setup dynamic spread
+	// Initialize dynamic spread
 	if s.DynamicSpread.IsEnabled() {
 		s.DynamicSpread.Initialize(s.Symbol, session)
 	}
 
-	// Setup dynamic exposure
+	// Initialize dynamic exposure
 	if s.DynamicExposure.IsEnabled() {
 		s.DynamicExposure.Initialize(s.Symbol, session)
 	}
 
-	// Setup dynamic quantities
+	// Initialize dynamic quantities
 	if len(s.DynamicQuantityIncrease) > 0 {
 		s.DynamicQuantityIncrease.Initialize(s.Symbol, session)
 	}
 	if len(s.DynamicQuantityDecrease) > 0 {
 		s.DynamicQuantityDecrease.Initialize(s.Symbol, session)
+	}
+
+	// Profit tracker
+	if s.ProfitStatsTracker != nil {
+		s.ProfitStatsTracker.Subscribe(session, s.Symbol)
 	}
 }
 
@@ -253,12 +270,12 @@ func (s *Strategy) isAllowOppositePosition() bool {
 		return false
 	}
 
-	if (s.mainTrendCurrent == types.DirectionUp && s.FastLinReg.Last() < 0 && s.SlowLinReg.Last() < 0) ||
-		(s.mainTrendCurrent == types.DirectionDown && s.FastLinReg.Last() > 0 && s.SlowLinReg.Last() > 0) {
-		log.Infof("%s allow opposite position is enabled: MainTrend %v, FastLinReg: %f, SlowLinReg: %f", s.Symbol, s.mainTrendCurrent, s.FastLinReg.Last(), s.SlowLinReg.Last())
+	if (s.mainTrendCurrent == types.DirectionUp && s.FastLinReg.Last(0) < 0 && s.SlowLinReg.Last(0) < 0) ||
+		(s.mainTrendCurrent == types.DirectionDown && s.FastLinReg.Last(0) > 0 && s.SlowLinReg.Last(0) > 0) {
+		log.Infof("%s allow opposite position is enabled: MainTrend %v, FastLinReg: %f, SlowLinReg: %f", s.Symbol, s.mainTrendCurrent, s.FastLinReg.Last(0), s.SlowLinReg.Last(0))
 		return true
 	}
-	log.Infof("%s allow opposite position is disabled: MainTrend %v, FastLinReg: %f, SlowLinReg: %f", s.Symbol, s.mainTrendCurrent, s.FastLinReg.Last(), s.SlowLinReg.Last())
+	log.Infof("%s allow opposite position is disabled: MainTrend %v, FastLinReg: %f, SlowLinReg: %f", s.Symbol, s.mainTrendCurrent, s.FastLinReg.Last(0), s.SlowLinReg.Last(0))
 
 	return false
 }
@@ -386,10 +403,10 @@ func (s *Strategy) getOrderQuantities(askPrice fixedpoint.Value, bidPrice fixedp
 	}
 
 	// Faster position decrease
-	if s.mainTrendCurrent == types.DirectionUp && s.SlowLinReg.Last() < 0 {
+	if s.mainTrendCurrent == types.DirectionUp && s.SlowLinReg.Last(0) < 0 {
 		sellQuantity = sellQuantity.Mul(s.FasterDecreaseRatio)
 		log.Infof("faster %s position decrease: sell qty %v", s.Symbol, sellQuantity)
-	} else if s.mainTrendCurrent == types.DirectionDown && s.SlowLinReg.Last() > 0 {
+	} else if s.mainTrendCurrent == types.DirectionDown && s.SlowLinReg.Last(0) > 0 {
 		buyQuantity = buyQuantity.Mul(s.FasterDecreaseRatio)
 		log.Infof("faster %s position decrease: buy qty %v", s.Symbol, buyQuantity)
 	}
@@ -426,22 +443,17 @@ func (s *Strategy) getAllowedBalance() (baseQty, quoteQty fixedpoint.Value) {
 	quoteBalance, hasQuoteBalance := balances[s.Market.QuoteCurrency]
 	lastPrice, _ := s.session.LastPrice(s.Symbol)
 
-	if bbgo.IsBackTesting {
-		if !hasQuoteBalance {
-			baseQty = fixedpoint.Zero
-			quoteQty = fixedpoint.Zero
-		} else {
-			baseQty = quoteBalance.Available.Div(lastPrice)
-			quoteQty = quoteBalance.Available
-		}
-	} else if s.session.Margin || s.session.IsolatedMargin || s.session.Futures || s.session.IsolatedFutures {
+	if bbgo.IsBackTesting { // Backtesting
+		baseQty = s.Position.Base
+		quoteQty = quoteBalance.Available.Sub(fixedpoint.Max(s.Position.Quote.Mul(fixedpoint.Two), fixedpoint.Zero))
+	} else if s.session.Margin || s.session.IsolatedMargin || s.session.Futures || s.session.IsolatedFutures { // Leveraged
 		quoteQ, err := bbgo.CalculateQuoteQuantity(s.ctx, s.session, s.Market.QuoteCurrency, s.Leverage)
 		if err != nil {
 			quoteQ = fixedpoint.Zero
 		}
 		quoteQty = quoteQ
 		baseQty = quoteQ.Div(lastPrice)
-	} else {
+	} else { // Spot
 		if !hasBaseBalance {
 			baseQty = fixedpoint.Zero
 		} else {
@@ -458,16 +470,16 @@ func (s *Strategy) getAllowedBalance() (baseQty, quoteQty fixedpoint.Value) {
 }
 
 // getCanBuySell returns the buy sell switches
-func (s *Strategy) getCanBuySell(buyQuantity, bidPrice, sellQuantity, askPrice fixedpoint.Value) (canBuy bool, canSell bool) {
+func (s *Strategy) getCanBuySell(buyQuantity, bidPrice, sellQuantity, askPrice, midPrice fixedpoint.Value) (canBuy bool, canSell bool) {
 	// By default, both buy and sell are on, which means we will place buy and sell orders
 	canBuy = true
 	canSell = true
 
 	// Check if current position > maxExposurePosition
 	if s.Position.GetBase().Abs().Compare(s.MaxExposurePosition) > 0 {
-		if s.mainTrendCurrent == types.DirectionUp {
+		if s.Position.IsLong() {
 			canBuy = false
-		} else if s.mainTrendCurrent == types.DirectionDown {
+		} else if s.Position.IsShort() {
 			canSell = false
 		}
 		log.Infof("current position %v larger than max exposure %v, skip increase position", s.Position.GetBase().Abs(), s.MaxExposurePosition)
@@ -476,14 +488,14 @@ func (s *Strategy) getCanBuySell(buyQuantity, bidPrice, sellQuantity, askPrice f
 	// Check TradeInBand
 	if s.TradeInBand {
 		// Price too high
-		if bidPrice.Float64() > s.neutralBoll.UpBand.Last() {
+		if bidPrice.Float64() > s.neutralBoll.UpBand.Last(0) {
 			canBuy = false
-			log.Infof("tradeInBand is set, skip buy when the price is higher than the neutralBB")
+			log.Infof("tradeInBand is set, skip buy due to the price is higher than the neutralBB")
 		}
 		// Price too low in uptrend
-		if askPrice.Float64() < s.neutralBoll.DownBand.Last() {
+		if askPrice.Float64() < s.neutralBoll.DownBand.Last(0) {
 			canSell = false
-			log.Infof("tradeInBand is set, skip sell when the price is lower than the neutralBB")
+			log.Infof("tradeInBand is set, skip sell due to the price is lower than the neutralBB")
 		}
 	}
 
@@ -491,9 +503,31 @@ func (s *Strategy) getCanBuySell(buyQuantity, bidPrice, sellQuantity, askPrice f
 	if !s.isAllowOppositePosition() {
 		if s.mainTrendCurrent == types.DirectionUp && (s.Position.IsClosed() || s.Position.IsDust(askPrice)) {
 			canSell = false
+			log.Infof("skip sell due to the long position is closed")
 		} else if s.mainTrendCurrent == types.DirectionDown && (s.Position.IsClosed() || s.Position.IsDust(bidPrice)) {
 			canBuy = false
+			log.Infof("skip buy due to the short position is closed")
 		}
+	}
+
+	// Min profit
+	roi := s.Position.ROI(midPrice)
+	if roi.Compare(s.MinProfitActivationRate) >= 0 {
+		if s.Position.IsLong() && !s.Position.IsDust(askPrice) {
+			minProfitPrice := s.Position.AverageCost.Mul(fixedpoint.One.Add(s.MinProfitSpread))
+			if askPrice.Compare(minProfitPrice) < 0 {
+				canSell = false
+				log.Infof("askPrice %v is less than minProfitPrice %v. skip sell", askPrice, minProfitPrice)
+			}
+		} else if s.Position.IsShort() && s.Position.IsDust(bidPrice) {
+			minProfitPrice := s.Position.AverageCost.Mul(fixedpoint.One.Sub(s.MinProfitSpread))
+			if bidPrice.Compare(minProfitPrice) > 0 {
+				canBuy = false
+				log.Infof("bidPrice %v is greater than minProfitPrice %v. skip buy", bidPrice, minProfitPrice)
+			}
+		}
+	} else {
+		log.Infof("position RoI %v is less than minProfitActivationRate %v. min profit protection is not active", roi, s.MinProfitActivationRate)
 	}
 
 	// Check against account balance
@@ -502,16 +536,20 @@ func (s *Strategy) getCanBuySell(buyQuantity, bidPrice, sellQuantity, askPrice f
 		if quoteQty.Compare(fixedpoint.Zero) <= 0 {
 			if s.Position.IsLong() {
 				canBuy = false
+				log.Infof("skip buy due to the account has no available balance")
 			} else if s.Position.IsShort() {
 				canSell = false
+				log.Infof("skip sell due to the account has no available balance")
 			}
 		}
 	} else {
 		if buyQuantity.Compare(quoteQty.Div(bidPrice)) > 0 { // Spot
 			canBuy = false
+			log.Infof("skip buy due to the account has no available balance")
 		}
 		if sellQuantity.Compare(baseQty) > 0 {
 			canSell = false
+			log.Infof("skip sell due to the account has no available balance")
 		}
 	}
 
@@ -589,6 +627,7 @@ func (s *Strategy) getOrderForms(buyQuantity, bidPrice, sellQuantity, askPrice f
 }
 
 func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, session *bbgo.ExchangeSession) error {
+	log.Debugf("%v", orderExecutor) // Here just to suppress GoLand warning
 	// initial required information
 	s.session = session
 	s.ctx = ctx
@@ -637,6 +676,34 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 	})
 	s.ExitMethods.Bind(session, s.orderExecutor)
 
+	// Setup profit tracker
+	if s.ProfitStatsTracker != nil {
+		if s.ProfitStatsTracker.CurrentProfitStats == nil {
+			s.ProfitStatsTracker.InitLegacy(s.Market, &s.ProfitStats, s.TradeStats)
+		}
+
+		// Add strategy parameters to report
+		if s.TrackParameters && s.ProfitStatsTracker.AccumulatedProfitReport != nil {
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("ReverseEMAWindow", strconv.Itoa(s.ReverseEMA.Window))
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("FastLinRegWindow", strconv.Itoa(s.FastLinReg.Window))
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("FastLinRegInterval", s.FastLinReg.Interval.String())
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("SlowLinRegWindow", strconv.Itoa(s.SlowLinReg.Window))
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("SlowLinRegInterval", s.SlowLinReg.Interval.String())
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("FasterDecreaseRatio", strconv.FormatFloat(s.FasterDecreaseRatio.Float64(), 'f', 4, 64))
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("NeutralBollingerWindow", strconv.Itoa(s.NeutralBollinger.Window))
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("NeutralBollingerBandWidth", strconv.FormatFloat(s.NeutralBollinger.BandWidth, 'f', 4, 64))
+			s.ProfitStatsTracker.AccumulatedProfitReport.AddStrategyParameter("Spread", strconv.FormatFloat(s.Spread.Float64(), 'f', 4, 64))
+		}
+
+		s.ProfitStatsTracker.Bind(s.session, s.orderExecutor.TradeCollector())
+	}
+
+	// Indicators initialized by StandardIndicatorSet must be initialized in Run()
+	// Initialize ReverseEMA
+	s.ReverseEMA = s.StandardIndicatorSet.EWMA(s.ReverseEMA.IntervalWindow)
+	// Initialize BBs
+	s.neutralBoll = s.StandardIndicatorSet.BOLL(s.NeutralBollinger.IntervalWindow, s.NeutralBollinger.BandWidth)
+
 	// Default spread
 	if s.Spread == fixedpoint.Zero {
 		s.Spread = fixedpoint.NewFromFloat(0.001)
@@ -668,7 +735,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 				closePrice = price
 			}
 		}
-		priceReverseEMA := fixedpoint.NewFromFloat(s.ReverseEMA.Last())
+		priceReverseEMA := fixedpoint.NewFromFloat(s.ReverseEMA.Last(0))
 
 		// Main trend by ReverseEMA
 		if closePrice.Compare(priceReverseEMA) > 0 {
@@ -683,7 +750,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 		// closePrice is the close price of current kline
 		closePrice := kline.GetClose()
 		// priceReverseEMA is the current ReverseEMA price
-		priceReverseEMA := fixedpoint.NewFromFloat(s.ReverseEMA.Last())
+		priceReverseEMA := fixedpoint.NewFromFloat(s.ReverseEMA.Last(0))
 
 		// Main trend by ReverseEMA
 		s.mainTrendPrevious = s.mainTrendCurrent
@@ -758,7 +825,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 
 		buyOrder, sellOrder := s.getOrderForms(buyQuantity, bidPrice, sellQuantity, askPrice)
 
-		canBuy, canSell := s.getCanBuySell(buyQuantity, bidPrice, sellQuantity, askPrice)
+		canBuy, canSell := s.getCanBuySell(buyQuantity, bidPrice, sellQuantity, askPrice, midPrice)
 
 		// Submit orders
 		var submitOrders []types.SubmitOrder
@@ -779,7 +846,15 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 	bbgo.OnShutdown(ctx, func(ctx context.Context, wg *sync.WaitGroup) {
 		defer wg.Done()
 
+		// Output profit report
+		if s.ProfitStatsTracker != nil {
+			if s.ProfitStatsTracker.AccumulatedProfitReport != nil {
+				s.ProfitStatsTracker.AccumulatedProfitReport.Output()
+			}
+		}
+
 		_ = s.orderExecutor.GracefulCancel(ctx)
+		_, _ = fmt.Fprintln(os.Stderr, s.TradeStats.String())
 	})
 
 	return nil

@@ -10,6 +10,7 @@ import (
 	"gonum.org/v1/gonum/floats"
 
 	"github.com/c9s/bbgo/pkg/bbgo"
+	"github.com/c9s/bbgo/pkg/core"
 	floats2 "github.com/c9s/bbgo/pkg/datatype/floats"
 	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/types"
@@ -47,8 +48,8 @@ type Strategy struct {
 	activeMakerOrders *bbgo.ActiveOrderBook
 	// closePositionOrders *bbgo.LocalActiveOrderBook
 
-	orderStore     *bbgo.OrderStore
-	tradeCollector *bbgo.TradeCollector
+	orderStore     *core.OrderStore
+	tradeCollector *core.TradeCollector
 
 	session *bbgo.ExchangeSession
 
@@ -158,7 +159,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 	// s.closePositionOrders = bbgo.NewLocalActiveOrderBook(s.Symbol)
 	// s.closePositionOrders.BindStream(session.UserDataStream)
 
-	s.orderStore = bbgo.NewOrderStore(s.Symbol)
+	s.orderStore = core.NewOrderStore(s.Symbol)
 	s.orderStore.BindStream(session.UserDataStream)
 
 	if s.Position == nil {
@@ -173,7 +174,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 	s.Position.Strategy = ID
 	s.Position.StrategyInstanceID = instanceID
 
-	s.tradeCollector = bbgo.NewTradeCollector(s.Symbol, s.Position, s.orderStore)
+	s.tradeCollector = core.NewTradeCollector(s.Symbol, s.Position, s.orderStore)
 	s.tradeCollector.OnTrade(func(trade types.Trade, profit, netProfit fixedpoint.Value) {
 		// StrategyController
 		if s.Status != types.StrategyStatusRunning {
@@ -341,7 +342,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 		// }
 		r.Train(rdps...)
 		r.Run()
-		er, _ := r.Predict(floats2.Slice{s.S0.Last(), s.S1.Last(), s.S2.Last(), s.S4.Last(), s.S5.Last(), s.S6.Last(), s.S7.Last(), s.A2.Last(), s.A3.Last(), s.A18.Last(), s.A34.Last()})
+		er, _ := r.Predict(floats2.Slice{s.S0.Last(0), s.S1.Last(0), s.S2.Last(0), s.S4.Last(0), s.S5.Last(0), s.S6.Last(0), s.S7.Last(0), s.A2.Last(0), s.A3.Last(0), s.A18.Last(0), s.A34.Last(0)})
 		log.Infof("Expected Return Rate: %f", er)
 
 		q := new(regression.Regression)
@@ -399,7 +400,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 
 		q.Run()
 
-		log.Info(s.S0.Last(), s.S1.Last(), s.S2.Last(), s.S3.Last(), s.S4.Last(), s.S5.Last(), s.S6.Last(), s.S7.Last(), s.A2.Last(), s.A3.Last(), s.A18.Last(), s.A34.Last())
+		log.Info(s.S0.Last(0), s.S1.Last(0), s.S2.Last(0), s.S3.Last(0), s.S4.Last(0), s.S5.Last(0), s.S6.Last(0), s.S7.Last(0), s.A2.Last(0), s.A3.Last(0), s.A18.Last(0), s.A34.Last(0))
 
 		log.Infof("Return Rate Regression formula:\n%v", r.Formula)
 		log.Infof("Order Quantity Regression formula:\n%v", q.Formula)
@@ -416,7 +417,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 		// a34 := preprocessing(s.A18.Values[len(s.A18.Values)-20 : len(s.A18.Values)-1-outlook])
 		// er, _ := r.Predict(types.Float64Slice{s0, s1, s2, s4, s5, a2, a3, a18, a34})
 		// eq, _ := q.Predict(types.Float64Slice{s0, s1, s2, s4, s5, a2, a3, a18, a34})
-		eq, _ := q.Predict(floats2.Slice{s.S0.Last(), s.S1.Last(), s.S2.Last(), s.S4.Last(), s.S5.Last(), s.S6.Last(), s.S7.Last(), s.A2.Last(), s.A3.Last(), s.A18.Last(), s.A34.Last(), er})
+		eq, _ := q.Predict(floats2.Slice{s.S0.Last(0), s.S1.Last(0), s.S2.Last(0), s.S4.Last(0), s.S5.Last(0), s.S6.Last(0), s.S7.Last(0), s.A2.Last(0), s.A3.Last(0), s.A18.Last(0), s.A34.Last(0), er})
 		log.Infof("Expected Order Quantity: %f", eq)
 		// if float64(s.Position.GetBase().Sign())*er < 0 {
 		//	s.ClosePosition(ctx, fixedpoint.One, kline.Close)

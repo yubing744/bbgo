@@ -8,6 +8,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/c9s/bbgo/pkg/bbgo"
+	"github.com/c9s/bbgo/pkg/core"
 	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/indicator"
 	"github.com/c9s/bbgo/pkg/types"
@@ -71,7 +72,7 @@ type Strategy struct {
 
 	profitOrders *bbgo.ActiveOrderBook
 
-	orders *bbgo.OrderStore
+	orders *core.OrderStore
 
 	// boll is the BOLLINGER indicator we used for predicting the price.
 	boll *indicator.BOLL
@@ -135,7 +136,7 @@ func (s *Strategy) generateGridBuyOrders(session *bbgo.ExchangeSession) ([]types
 	ema99 := s.StandardIndicatorSet.EWMA(types.IntervalWindow{Interval: s.Interval, Window: 99})
 	ema25 := s.StandardIndicatorSet.EWMA(types.IntervalWindow{Interval: s.Interval, Window: 25})
 	ema7 := s.StandardIndicatorSet.EWMA(types.IntervalWindow{Interval: s.Interval, Window: 7})
-	if ema7.Last() > ema25.Last()*1.001 && ema25.Last() > ema99.Last()*1.0005 {
+	if ema7.Last(0) > ema25.Last(0)*1.001 && ema25.Last(0) > ema99.Last(0)*1.0005 {
 		log.Infof("all ema lines trend up, skip buy")
 		return nil, nil
 	}
@@ -202,7 +203,7 @@ func (s *Strategy) generateGridSellOrders(session *bbgo.ExchangeSession) ([]type
 	ema99 := s.StandardIndicatorSet.EWMA(types.IntervalWindow{Interval: s.Interval, Window: 99})
 	ema25 := s.StandardIndicatorSet.EWMA(types.IntervalWindow{Interval: s.Interval, Window: 25})
 	ema7 := s.StandardIndicatorSet.EWMA(types.IntervalWindow{Interval: s.Interval, Window: 7})
-	if ema7.Last() < ema25.Last()*(1-0.004) && ema25.Last() < ema99.Last()*(1-0.0005) {
+	if ema7.Last(0) < ema25.Last(0)*(1-0.004) && ema25.Last(0) < ema99.Last(0)*(1-0.0005) {
 		log.Infof("all ema lines trend down, skip sell")
 		return nil, nil
 	}
@@ -330,7 +331,7 @@ func (s *Strategy) Run(ctx context.Context, orderExecutor bbgo.OrderExecutor, se
 		Window:   21,
 	}, 2.0)
 
-	s.orders = bbgo.NewOrderStore(s.Symbol)
+	s.orders = core.NewOrderStore(s.Symbol)
 	s.orders.BindStream(session.UserDataStream)
 
 	// we don't persist orders so that we can not clear the previous orders for now. just need time to support this.

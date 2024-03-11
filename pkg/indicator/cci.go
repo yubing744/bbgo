@@ -11,6 +11,12 @@ import (
 // Refer URL: http://www.andrewshamlet.net/2017/07/08/python-tutorial-cci
 // with modification of ddof=0 to let standard deviation to be divided by N instead of N-1
 //
+// CCI = (Typical Price  -  n-period SMA of TP) / (Constant x Mean Deviation)
+//
+// Typical Price (TP) = (High + Low + Close)/3
+//
+// Constant = .015
+//
 // The Commodity Channel Index (CCI) is a technical analysis indicator that is used to identify potential overbought or oversold conditions
 // in a security's price. It was originally developed for use in commodity markets, but can be applied to any security that has a sufficient
 // amount of price data. The CCI is calculated by taking the difference between the security's typical price (the average of its high, low, and
@@ -43,19 +49,21 @@ func (inc *CCI) Update(value float64) {
 	}
 
 	inc.Input.Push(value)
-	tp := inc.TypicalPrice.Last() - inc.Input.Index(inc.Window) + value
+	tp := inc.TypicalPrice.Last(0) - inc.Input.Last(inc.Window) + value
 	inc.TypicalPrice.Push(tp)
 	if len(inc.Input) < inc.Window {
 		return
 	}
+
 	ma := tp / float64(inc.Window)
 	inc.MA.Push(ma)
 	if len(inc.MA) > MaxNumOfEWMA {
 		inc.MA = inc.MA[MaxNumOfEWMATruncateSize-1:]
 	}
+
 	md := 0.
 	for i := 0; i < inc.Window; i++ {
-		diff := inc.Input.Index(i) - ma
+		diff := inc.Input.Last(i) - ma
 		md += diff * diff
 	}
 	md = math.Sqrt(md / float64(inc.Window))
@@ -68,18 +76,12 @@ func (inc *CCI) Update(value float64) {
 	}
 }
 
-func (inc *CCI) Last() float64 {
-	if len(inc.Values) == 0 {
-		return 0
-	}
-	return inc.Values[len(inc.Values)-1]
+func (inc *CCI) Last(i int) float64 {
+	return inc.Values.Last(i)
 }
 
 func (inc *CCI) Index(i int) float64 {
-	if i >= len(inc.Values) {
-		return 0
-	}
-	return inc.Values[len(inc.Values)-1-i]
+	return inc.Last(i)
 }
 
 func (inc *CCI) Length() int {
@@ -96,23 +98,11 @@ func (inc *CCI) CalculateAndUpdate(allKLines []types.KLine) {
 	if inc.TypicalPrice.Length() == 0 {
 		for _, k := range allKLines {
 			inc.PushK(k)
-			inc.EmitUpdate(inc.Last())
+			inc.EmitUpdate(inc.Last(0))
 		}
 	} else {
 		k := allKLines[len(allKLines)-1]
 		inc.PushK(k)
-		inc.EmitUpdate(inc.Last())
+		inc.EmitUpdate(inc.Last(0))
 	}
-}
-
-func (inc *CCI) handleKLineWindowUpdate(interval types.Interval, window types.KLineWindow) {
-	if inc.Interval != interval {
-		return
-	}
-
-	inc.CalculateAndUpdate(window)
-}
-
-func (inc *CCI) Bind(updater KLineWindowUpdater) {
-	updater.OnKLineWindowUpdate(inc.handleKLineWindowUpdate)
 }

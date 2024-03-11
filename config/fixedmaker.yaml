@@ -1,0 +1,34 @@
+---
+backtest:
+  startTime: "2023-01-01"
+  endTime: "2023-05-31"
+  symbols:
+    - USDCUSDT
+  sessions:
+    - max
+  accounts:
+    max:
+      balances:
+        USDC: 500.0
+        USDT: 500.0
+
+exchangeStrategies:
+  - on: max
+    fixedmaker:
+      symbol: USDCUSDT
+      interval: 1m
+      halfSpread: 0.05%
+      quantity: 15
+      orderType: LIMIT_MAKER
+      dryRun: true
+
+      positionHardLimit: 1500
+      maxPositionQuantity: 1500
+      circuitBreakLossThreshold: -0.15
+      circuitBreakEMA:
+        interval: 1m
+        window: 14
+
+      inventorySkew:
+        inventoryRangeMultiplier: 1.0
+        targetBaseRatio: 0.5

@@ -73,10 +73,27 @@ type Position struct {
 
 	AccumulatedProfit fixedpoint.Value `json:"accumulatedProfit,omitempty" db:"accumulated_profit"`
 
+	// closing is a flag for marking this position is closing
+	closing bool
+
 	sync.Mutex
 
 	// Modify position callbacks
 	modifyCallbacks []func(baseQty fixedpoint.Value, quoteQty fixedpoint.Value, price fixedpoint.Value)
+
+	// ttl is the ttl to keep in persistence
+	ttl time.Duration
+}
+
+func (s *Position) SetTTL(ttl time.Duration) {
+	if ttl.Nanoseconds() <= 0 {
+		return
+	}
+	s.ttl = ttl
+}
+
+func (s *Position) Expiration() time.Duration {
+	return s.ttl
 }
 
 func (p *Position) CsvHeader() []string {
@@ -190,7 +207,12 @@ func (p *Position) NewMarketCloseOrder(percentage fixedpoint.Value) *SubmitOrder
 	}
 }
 
-func (p *Position) IsDust(price fixedpoint.Value) bool {
+func (p *Position) IsDust(a ...fixedpoint.Value) bool {
+	price := p.AverageCost
+	if len(a) > 0 {
+		price = a[0]
+	}
+
 	base := p.Base.Abs()
 	return p.Market.IsDustQuantity(base, price)
 }
@@ -204,6 +226,8 @@ func (p *Position) GetBase() (base fixedpoint.Value) {
 	return base
 }
 
+// GetQuantity calls GetBase() and then convert the number into a positive number
+// that could be treated as a quantity.
 func (p *Position) GetQuantity() fixedpoint.Value {
 	base := p.GetBase()
 	return base.Abs()
@@ -462,6 +486,25 @@ func (p *Position) BindStream(stream Stream) {
 			p.AddTrade(trade)
 		}
 	})
+}
+
+func (p *Position) SetClosing(c bool) bool {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.closing && c {
+		return false
+	}
+
+	p.closing = c
+	return true
+}
+
+func (p *Position) IsClosing() (c bool) {
+	p.Lock()
+	c = p.closing
+	p.Unlock()
+	return c
 }
 
 func (p *Position) AddTrades(trades []Trade) (fixedpoint.Value, fixedpoint.Value, bool) {

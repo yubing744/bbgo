@@ -19,7 +19,7 @@ type S1 struct {
 	UpdateCallbacks []func(value float64)
 }
 
-func (inc *S1) Last() float64 {
+func (inc *S1) Last(int) float64 {
 	if len(inc.Values) == 0 {
 		return 0.0
 	}
@@ -40,7 +40,7 @@ func (inc *S1) CalculateAndUpdate(klines []types.KLine) {
 
 	var recentT = klines[end-(inc.Window-1) : end+1]
 
-	correlation, err := calculateS1(recentT, inc.Window, KLineAmplitudeMapper, indicator.KLineVolumeMapper)
+	correlation, err := calculateS1(recentT, inc.Window, KLineAmplitudeMapper, types.KLineVolumeMapper)
 	if err != nil {
 		log.WithError(err).Error("can not calculate correlation")
 		return

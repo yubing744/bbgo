@@ -47,6 +47,16 @@ func (s *TradeSlice) Append(t Trade) {
 	s.mu.Unlock()
 }
 
+func (s *TradeSlice) Truncate(size int) {
+	s.mu.Lock()
+
+	if len(s.Trades) > size {
+		s.Trades = s.Trades[len(s.Trades)-1-size:]
+	}
+
+	s.mu.Unlock()
+}
+
 type Trade struct {
 	// GID is the global ID
 	GID int64 `json:"gid" db:"gid"`
@@ -66,6 +76,12 @@ type Trade struct {
 	Time        Time             `json:"tradedAt" db:"traded_at"`
 	Fee         fixedpoint.Value `json:"fee" db:"fee"`
 	FeeCurrency string           `json:"feeCurrency" db:"fee_currency"`
+
+	// FeeDiscounted is an optional field which indicates whether the trade is using the platform fee token for discount.
+	// When FeeDiscounted = true, means the fee is deducted outside the trade
+	// By default, it's set to false.
+	// This is only used by the MAX exchange
+	FeeDiscounted bool `json:"feeDiscounted" db:"-"`
 
 	IsMargin   bool `json:"isMargin" db:"is_margin"`
 	IsFutures  bool `json:"isFutures" db:"is_futures"`
@@ -104,6 +120,9 @@ func (trade Trade) CsvRecords() [][]string {
 	}
 }
 
+// PositionChange returns the position delta of this trade
+// BUY trade -> positive quantity
+// SELL trade -> negative quantity
 func (trade Trade) PositionChange() fixedpoint.Value {
 	q := trade.Quantity
 	switch trade.Side {

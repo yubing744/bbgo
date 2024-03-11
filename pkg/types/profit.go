@@ -147,6 +147,24 @@ func (p *Profit) PlainText() string {
 	)
 }
 
+// PeriodProfitStats defined the profit stats for a period
+// TODO: replace AccumulatedPnL and TodayPnL fields from the ProfitStats struct
+type PeriodProfitStats struct {
+	PnL           fixedpoint.Value `json:"pnl,omitempty"`
+	NetProfit     fixedpoint.Value `json:"netProfit,omitempty"`
+	GrossProfit   fixedpoint.Value `json:"grossProfit,omitempty"`
+	GrossLoss     fixedpoint.Value `json:"grossLoss,omitempty"`
+	Volume        fixedpoint.Value `json:"volume,omitempty"`
+	VolumeInQuote fixedpoint.Value `json:"volumeInQuote,omitempty"`
+	MakerVolume   fixedpoint.Value `json:"makerVolume,omitempty"`
+	TakerVolume   fixedpoint.Value `json:"takerVolume,omitempty"`
+
+	// time fields
+	LastTradeTime time.Time `json:"lastTradeTime,omitempty"`
+	StartTime     time.Time `json:"startTime,omitempty"`
+	EndTime       time.Time `json:"endTime,omitempty"`
+}
+
 type ProfitStats struct {
 	Symbol        string `json:"symbol"`
 	QuoteCurrency string `json:"quoteCurrency"`
@@ -182,6 +200,8 @@ func NewProfitStats(market Market) *ProfitStats {
 		TodayGrossProfit:       fixedpoint.Zero,
 		TodayGrossLoss:         fixedpoint.Zero,
 		TodaySince:             0,
+		// StartTime:              time.Now().UTC(),
+		// EndTime:                time.Now().UTC(),
 	}
 }
 
@@ -223,6 +243,8 @@ func (s *ProfitStats) AddProfit(profit Profit) {
 		s.AccumulatedGrossLoss = s.AccumulatedGrossLoss.Add(profit.Profit)
 		s.TodayGrossLoss = s.TodayGrossLoss.Add(profit.Profit)
 	}
+
+	// s.EndTime = profit.TradedAt.UTC()
 }
 
 func (s *ProfitStats) AddTrade(trade Trade) {
@@ -235,6 +257,10 @@ func (s *ProfitStats) AddTrade(trade Trade) {
 
 // IsOver24Hours checks if the since time is over 24 hours
 func (s *ProfitStats) IsOver24Hours() bool {
+	if s.TodaySince == 0 {
+		return false
+	}
+
 	return time.Since(time.Unix(s.TodaySince, 0)) >= 24*time.Hour
 }
 

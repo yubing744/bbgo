@@ -1,11 +1,13 @@
 package bollmaker
 
 import (
-	"github.com/pkg/errors"
 	"math"
+
+	"github.com/pkg/errors"
 
 	"github.com/c9s/bbgo/pkg/bbgo"
 	"github.com/c9s/bbgo/pkg/indicator"
+	indicatorv2 "github.com/c9s/bbgo/pkg/indicator/v2"
 	"github.com/c9s/bbgo/pkg/types"
 )
 
@@ -27,7 +29,7 @@ type DynamicSpreadSettings struct {
 }
 
 // Initialize dynamic spreads and preload SMAs
-func (ds *DynamicSpreadSettings) Initialize(symbol string, session *bbgo.ExchangeSession, neutralBoll, defaultBoll *indicator.BOLL) {
+func (ds *DynamicSpreadSettings) Initialize(symbol string, session *bbgo.ExchangeSession, neutralBoll, defaultBoll *indicatorv2.BOLLStream) {
 	switch {
 	case ds.AmpSpreadSettings != nil:
 		ds.AmpSpreadSettings.initialize(symbol, session)
@@ -126,7 +128,7 @@ func (ds *DynamicSpreadAmpSettings) update(kline types.KLine) {
 
 func (ds *DynamicSpreadAmpSettings) getAskSpread() (askSpread float64, err error) {
 	if ds.AskSpreadScale != nil && ds.dynamicAskSpread.Length() >= ds.Window {
-		askSpread, err = ds.AskSpreadScale.Scale(ds.dynamicAskSpread.Last())
+		askSpread, err = ds.AskSpreadScale.Scale(ds.dynamicAskSpread.Last(0))
 		if err != nil {
 			log.WithError(err).Errorf("can not calculate dynamicAskSpread")
 			return 0, err
@@ -140,7 +142,7 @@ func (ds *DynamicSpreadAmpSettings) getAskSpread() (askSpread float64, err error
 
 func (ds *DynamicSpreadAmpSettings) getBidSpread() (bidSpread float64, err error) {
 	if ds.BidSpreadScale != nil && ds.dynamicBidSpread.Length() >= ds.Window {
-		bidSpread, err = ds.BidSpreadScale.Scale(ds.dynamicBidSpread.Last())
+		bidSpread, err = ds.BidSpreadScale.Scale(ds.dynamicBidSpread.Last(0))
 		if err != nil {
 			log.WithError(err).Errorf("can not calculate dynamicBidSpread")
 			return 0, err
@@ -163,11 +165,10 @@ type DynamicSpreadBollWidthRatioSettings struct {
 	// A positive number. The greater factor, the sharper weighting function. Default set to 1.0 .
 	Sensitivity float64 `json:"sensitivity"`
 
-	neutralBoll *indicator.BOLL
-	defaultBoll *indicator.BOLL
+	defaultBoll, neutralBoll *indicatorv2.BOLLStream
 }
 
-func (ds *DynamicSpreadBollWidthRatioSettings) initialize(neutralBoll, defaultBoll *indicator.BOLL) {
+func (ds *DynamicSpreadBollWidthRatioSettings) initialize(neutralBoll, defaultBoll *indicatorv2.BOLLStream) {
 	ds.neutralBoll = neutralBoll
 	ds.defaultBoll = defaultBoll
 	if ds.Sensitivity <= 0. {
@@ -224,12 +225,12 @@ func (ds *DynamicSpreadBollWidthRatioSettings) getWeightedBBWidthRatio(positiveS
 	//   - To ask spread, the higher neutral band get greater ratio
 	//   - To bid spread, the lower neutral band get greater ratio
 
-	defaultMid := ds.defaultBoll.SMA.Last()
-	defaultUpper := ds.defaultBoll.UpBand.Last()
-	defaultLower := ds.defaultBoll.DownBand.Last()
+	defaultMid := ds.defaultBoll.SMA.Last(0)
+	defaultUpper := ds.defaultBoll.UpBand.Last(0)
+	defaultLower := ds.defaultBoll.DownBand.Last(0)
 	defaultWidth := defaultUpper - defaultLower
-	neutralUpper := ds.neutralBoll.UpBand.Last()
-	neutralLower := ds.neutralBoll.DownBand.Last()
+	neutralUpper := ds.neutralBoll.UpBand.Last(0)
+	neutralLower := ds.neutralBoll.DownBand.Last(0)
 	factor := defaultWidth / ds.Sensitivity
 	var weightedUpper, weightedLower, weightedDivUpper, weightedDivLower float64
 	if positiveSigmoid {

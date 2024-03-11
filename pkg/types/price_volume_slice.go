@@ -12,8 +12,12 @@ type PriceVolume struct {
 	Price, Volume fixedpoint.Value
 }
 
+func (p PriceVolume) Equals(b PriceVolume) bool {
+	return p.Price.Eq(b.Price) && p.Volume.Eq(b.Volume)
+}
+
 func (p PriceVolume) String() string {
-	return fmt.Sprintf("PriceVolume{ price: %s, volume: %s }", p.Price.String(), p.Volume.String())
+	return fmt.Sprintf("PriceVolume{ Price: %s, Volume: %s }", p.Price.String(), p.Volume.String())
 }
 
 type PriceVolumeSlice []PriceVolume
@@ -34,7 +38,7 @@ func (slice PriceVolumeSlice) Trim() (pvs PriceVolumeSlice) {
 }
 
 func (slice PriceVolumeSlice) CopyDepth(depth int) PriceVolumeSlice {
-	if depth > len(slice) {
+	if depth == 0 || depth > len(slice) {
 		return slice.Copy()
 	}
 
@@ -63,8 +67,43 @@ func (slice PriceVolumeSlice) First() (PriceVolume, bool) {
 	return PriceVolume{}, false
 }
 
+func (slice PriceVolumeSlice) IndexByQuoteVolumeDepth(requiredQuoteVolume fixedpoint.Value) int {
+	var totalQuoteVolume = fixedpoint.Zero
+	for x, pv := range slice {
+		// this should use float64 multiply
+		quoteVolume := fixedpoint.Mul(pv.Volume, pv.Price)
+		totalQuoteVolume = totalQuoteVolume.Add(quoteVolume)
+		if totalQuoteVolume.Compare(requiredQuoteVolume) >= 0 {
+			return x
+		}
+	}
+
+	// depth not enough
+	return -1
+}
+
+func (slice PriceVolumeSlice) SumDepth() fixedpoint.Value {
+	var total = fixedpoint.Zero
+	for _, pv := range slice {
+		total = total.Add(pv.Volume)
+	}
+
+	return total
+}
+
+func (slice PriceVolumeSlice) SumDepthInQuote() fixedpoint.Value {
+	var total = fixedpoint.Zero
+
+	for _, pv := range slice {
+		quoteVolume := fixedpoint.Mul(pv.Price, pv.Volume)
+		total = total.Add(quoteVolume)
+	}
+
+	return total
+}
+
 func (slice PriceVolumeSlice) IndexByVolumeDepth(requiredVolume fixedpoint.Value) int {
-	var tv fixedpoint.Value = fixedpoint.Zero
+	var tv = fixedpoint.Zero
 	for x, el := range slice {
 		tv = tv.Add(el.Volume)
 		if tv.Compare(requiredVolume) >= 0 {
@@ -72,7 +111,7 @@ func (slice PriceVolumeSlice) IndexByVolumeDepth(requiredVolume fixedpoint.Value
 		}
 	}
 
-	// not deep enough
+	// depth not enough
 	return -1
 }
 
@@ -139,8 +178,7 @@ func (slice *PriceVolumeSlice) UnmarshalJSON(b []byte) error {
 
 // ParsePriceVolumeSliceJSON tries to parse a 2 dimensional string array into a PriceVolumeSlice
 //
-//  [["9000", "10"], ["9900", "10"], ... ]
-//
+//	[["9000", "10"], ["9900", "10"], ... ]
 func ParsePriceVolumeSliceJSON(b []byte) (slice PriceVolumeSlice, err error) {
 	var as [][]fixedpoint.Value
 

@@ -2,6 +2,10 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "bbgo.fullname" . }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   labels:
     {{- include "bbgo.labels" . | nindent 4 }}
 spec:
@@ -22,6 +26,7 @@ spec:
     {{- end }}
       labels:
         {{- include "bbgo.selectorLabels" . | nindent 8 }}
+        {{- include "bbgo.labels" . | nindent 8 }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -48,6 +53,10 @@ spec:
           - "--no-compile"
           {{- if .Values.webserver.enabled }}
           - "--enable-webserver"
+          {{- end }}
+          {{- if .Values.logFormatter.enabled }}
+          - "--log-formatter"
+          - {{ .Values.logFormatter.format | quote }}
           {{- end }}
           {{- if .Values.grpc.enabled }}
           - "--enable-grpc"

@@ -52,12 +52,16 @@ func IterateFields(obj interface{}, cb func(ft reflect.StructField, fv reflect.V
 	return nil
 }
 
-func IterateFieldsByTag(obj interface{}, tagName string, cb StructFieldIterator) error {
+func isStructPtr(tpe reflect.Type) bool {
+	return tpe.Kind() == reflect.Ptr && tpe.Elem().Kind() == reflect.Struct
+}
+
+func IterateFieldsByTag(obj interface{}, tagName string, children bool, cb StructFieldIterator) error {
 	sv := reflect.ValueOf(obj)
 	st := reflect.TypeOf(obj)
 
 	if st.Kind() != reflect.Ptr {
-		return fmt.Errorf("f should be a pointer of a struct, %s given", st)
+		return fmt.Errorf("obj should be a pointer of a struct, %s given", st)
 	}
 
 	// for pointer, check if it's nil
@@ -82,11 +86,19 @@ func IterateFieldsByTag(obj interface{}, tagName string, cb StructFieldIterator)
 			continue
 		}
 
+		if children && isStructPtr(ft.Type) && !fv.IsNil() {
+			// recursive iterate the struct field
+			if err := IterateFieldsByTag(fv.Interface(), tagName, false, cb); err != nil {
+				return fmt.Errorf("unable to iterate struct fields over the type %v: %v", ft, err)
+			}
+		}
+
 		tag, ok := ft.Tag.Lookup(tagName)
 		if !ok {
 			continue
 		}
 
+		// call the iterator
 		if err := cb(tag, ft, fv); err != nil {
 			return err
 		}

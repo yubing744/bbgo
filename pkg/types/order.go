@@ -116,8 +116,14 @@ const (
 	OrderStatusRejected OrderStatus = "REJECTED"
 )
 
+func (o OrderStatus) Closed() bool {
+	return o == OrderStatusFilled ||
+		o == OrderStatusCanceled ||
+		o == OrderStatusRejected
+}
+
 type SubmitOrder struct {
-	ClientOrderID string `json:"clientOrderID" db:"client_order_id"`
+	ClientOrderID string `json:"clientOrderID,omitempty" db:"client_order_id"`
 
 	Symbol string    `json:"symbol" db:"symbol"`
 	Side   SideType  `json:"side" db:"side"`
@@ -127,7 +133,7 @@ type SubmitOrder struct {
 	Price    fixedpoint.Value `json:"price" db:"price"`
 
 	// AveragePrice is only used in back-test currently
-	AveragePrice fixedpoint.Value `json:"averagePrice"`
+	AveragePrice fixedpoint.Value `json:"averagePrice,omitempty"`
 
 	StopPrice fixedpoint.Value `json:"stopPrice,omitempty" db:"stop_price"`
 	TakePrice fixedpoint.Value `json:"takePrice,omitempty" db:"take_price"`
@@ -140,10 +146,10 @@ type SubmitOrder struct {
 
 	MarginSideEffect MarginOrderSideEffectType `json:"marginSideEffect,omitempty"` // AUTO_REPAY = repay, MARGIN_BUY = borrow, defaults to  NO_SIDE_EFFECT
 
-	ReduceOnly    bool `json:"reduceOnly" db:"reduce_only"`
-	ClosePosition bool `json:"closePosition" db:"close_position"`
+	ReduceOnly    bool `json:"reduceOnly,omitempty" db:"reduce_only"`
+	ClosePosition bool `json:"closePosition,omitempty" db:"close_position"`
 
-	Tag string `json:"tag" db:"-"`
+	Tag string `json:"tag,omitempty" db:"-"`
 }
 
 func (o *SubmitOrder) In() (fixedpoint.Value, string) {
@@ -249,19 +255,30 @@ type Order struct {
 	Exchange ExchangeName `json:"exchange" db:"exchange"`
 
 	// GID is used for relational database storage, it's an incremental ID
-	GID     uint64 `json:"gid" db:"gid"`
+	GID     uint64 `json:"gid,omitempty" db:"gid"`
 	OrderID uint64 `json:"orderID" db:"order_id"` // order id
 	UUID    string `json:"uuid,omitempty"`
 
-	Status           OrderStatus      `json:"status" db:"status"`
-	ExecutedQuantity fixedpoint.Value `json:"executedQuantity" db:"executed_quantity"`
-	IsWorking        bool             `json:"isWorking" db:"is_working"`
-	CreationTime     Time             `json:"creationTime" db:"created_at"`
-	UpdateTime       Time             `json:"updateTime" db:"updated_at"`
+	Status OrderStatus `json:"status" db:"status"`
 
-	IsFutures  bool `json:"isFutures" db:"is_futures"`
-	IsMargin   bool `json:"isMargin" db:"is_margin"`
-	IsIsolated bool `json:"isIsolated" db:"is_isolated"`
+	// OriginalStatus stores the original order status from the specific exchange
+	OriginalStatus string `json:"originalStatus,omitempty" db:"-"`
+
+	// ExecutedQuantity is how much quantity has been executed
+	ExecutedQuantity fixedpoint.Value `json:"executedQuantity" db:"executed_quantity"`
+
+	// IsWorking means if the order is still on the order book (active order)
+	IsWorking bool `json:"isWorking" db:"is_working"`
+
+	// CreationTime is the time when this order is created
+	CreationTime Time `json:"creationTime" db:"created_at"`
+
+	// UpdateTime is the latest time when this order gets updated
+	UpdateTime Time `json:"updateTime" db:"updated_at"`
+
+	IsFutures  bool `json:"isFutures,omitempty" db:"is_futures"`
+	IsMargin   bool `json:"isMargin,omitempty" db:"is_margin"`
+	IsIsolated bool `json:"isIsolated,omitempty" db:"is_isolated"`
 }
 
 func (o Order) CsvHeader() []string {
@@ -315,9 +332,8 @@ func (o Order) String() string {
 		orderID = strconv.FormatUint(o.OrderID, 10)
 	}
 
-	desc := fmt.Sprintf("ORDER %s | %s | %s | %s | %s %-4s | %s/%s @ %s",
+	desc := fmt.Sprintf("ORDER %s | %s | %s | %s %-4s | %s/%s @ %s",
 		o.Exchange.String(),
-		o.CreationTime.Time().Local().Format(time.StampMilli),
 		orderID,
 		o.Symbol,
 		o.Type,
@@ -330,7 +346,17 @@ func (o Order) String() string {
 		desc += " Stop @ " + o.StopPrice.String()
 	}
 
-	return desc + " | " + string(o.Status)
+	desc += " | " + string(o.Status) + " | "
+
+	desc += time.Time(o.CreationTime).UTC().Format(time.StampMilli)
+
+	if time.Time(o.UpdateTime).IsZero() {
+		desc += " -> 0"
+	} else {
+		desc += " -> " + time.Time(o.UpdateTime).UTC().Format(time.StampMilli)
+	}
+
+	return desc
 }
 
 // PlainText is used for telegram-styled messages
@@ -396,15 +422,23 @@ func (o Order) SlackAttachment() slack.Attachment {
 	}
 }
 
-func OrdersFilled(in []Order) (out []Order) {
+func OrdersFilter(in []Order, f func(o Order) bool) (out []Order) {
 	for _, o := range in {
-		switch o.Status {
-		case OrderStatusFilled:
-			o2 := o
-			out = append(out, o2)
+		if f(o) {
+			out = append(out, o)
 		}
 	}
 	return out
+}
+
+func OrdersActive(in []Order) []Order {
+	return OrdersFilter(in, IsActiveOrder)
+}
+
+func OrdersFilled(in []Order) (out []Order) {
+	return OrdersFilter(in, func(o Order) bool {
+		return o.Status == OrderStatusFilled
+	})
 }
 
 func OrdersAll(orders []Order, f func(o Order) bool) bool {

@@ -17,6 +17,15 @@ const (
 	WalletTypeMargin WalletType = "m"
 )
 
+type OrderByType string
+
+const (
+	OrderByAsc           OrderByType = "asc"
+	OrderByDesc          OrderByType = "desc"
+	OrderByAscUpdatedAt  OrderByType = "asc_updated_at"
+	OrderByDescUpdatedAt OrderByType = "desc_updated_at"
+)
+
 type OrderStateToQuery int
 
 const (
@@ -91,4 +100,5 @@ type Order struct {
 	GroupID         uint32                     `json:"group_id,omitempty"`
 	ClientOID       string                     `json:"client_oid,omitempty"`
 	CreatedAt       types.MillisecondTimestamp `json:"created_at"`
+	UpdatedAt       types.MillisecondTimestamp `json:"updated_at"`
 }

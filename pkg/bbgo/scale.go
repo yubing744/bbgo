@@ -1,6 +1,7 @@
 package bbgo
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 
@@ -12,6 +13,7 @@ type Scale interface {
 	Formula() string
 	FormulaOf(x float64) string
 	Call(x float64) (y float64)
+	Sum(step float64) float64
 }
 
 func init() {
@@ -21,6 +23,7 @@ func init() {
 	_ = Scale(&QuadraticScale{})
 }
 
+// f(x) := ab^x
 // y := ab^x
 // shift xs[0] to 0 (x - h)
 // a = y1
@@ -54,6 +57,14 @@ func (s *ExponentialScale) Solve() error {
 	s.b = math.Pow(s.Range[1]/s.Range[0], 1/(s.Domain[1]-s.h))
 	s.s = s.Domain[1] - s.h
 	return nil
+}
+
+func (s *ExponentialScale) Sum(step float64) float64 {
+	sum := 0.0
+	for x := s.Domain[0]; x <= s.Domain[1]; x += step {
+		sum += s.Call(x)
+	}
+	return sum
 }
 
 func (s *ExponentialScale) String() string {
@@ -100,6 +111,14 @@ func (s *LogarithmicScale) Call(x float64) (y float64) {
 	return y
 }
 
+func (s *LogarithmicScale) Sum(step float64) float64 {
+	sum := 0.0
+	for x := s.Domain[0]; x <= s.Domain[1]; x += step {
+		sum += s.Call(x)
+	}
+	return sum
+}
+
 func (s *LogarithmicScale) String() string {
 	return s.Formula()
 }
@@ -134,34 +153,36 @@ type LinearScale struct {
 	Domain [2]float64 `json:"domain"`
 	Range  [2]float64 `json:"range"`
 
-	a, b float64
+	// a is the ratio for Range to Domain
+	a float64
 }
 
 func (s *LinearScale) Solve() error {
 	xs := s.Domain
 	ys := s.Range
-	// y1 = a * x1 + b
-	// y2 = a * x2 + b
-	// y2 - y1 = (a * x2 + b) - (a * x1 + b)
-	// y2 - y1 = (a * x2) - (a * x1)
-	// y2 - y1 = a * (x2 - x1)
 
-	// a = (y2 - y1) / (x2 - x1)
-	// b = y1 - (a * x1)
 	s.a = (ys[1] - ys[0]) / (xs[1] - xs[0])
-	s.b = ys[0] - (s.a * xs[0])
+
 	return nil
 }
 
 func (s *LinearScale) Call(x float64) (y float64) {
-	if x < s.Domain[0] {
-		x = s.Domain[0]
-	} else if x > s.Domain[1] {
-		x = s.Domain[1]
+	if x <= s.Domain[0] {
+		return s.Range[0]
+	} else if x >= s.Domain[1] {
+		return s.Range[1]
 	}
 
-	y = s.a*x + s.b
+	y = s.Range[0] + (x-s.Domain[0])*s.a
 	return y
+}
+
+func (s *LinearScale) Sum(step float64) float64 {
+	sum := 0.0
+	for x := s.Domain[0]; x <= s.Domain[1]; x += step {
+		sum += s.Call(x)
+	}
+	return sum
 }
 
 func (s *LinearScale) String() string {
@@ -169,11 +190,11 @@ func (s *LinearScale) String() string {
 }
 
 func (s *LinearScale) Formula() string {
-	return fmt.Sprintf("f(x) = %f * x + %f", s.a, s.b)
+	return fmt.Sprintf("f(x) = %f + (x - %f) * %f", s.Range[0], s.Domain[0], s.a)
 }
 
 func (s *LinearScale) FormulaOf(x float64) string {
-	return fmt.Sprintf("f(%f) = %f * %f + %f", x, s.a, x, s.b)
+	return fmt.Sprintf("f(%f) = %f + (%f - %f) * %f", x, s.Range[0], x, s.Domain[0], s.a)
 }
 
 // see also: http://www.vb-helper.com/howto_find_quadratic_curve.html
@@ -205,6 +226,14 @@ func (s *QuadraticScale) Call(x float64) (y float64) {
 	// y = a * log(x - h) + s
 	y = s.a*math.Pow(x, 2) + s.b*x + s.c
 	return y
+}
+
+func (s *QuadraticScale) Sum(step float64) float64 {
+	sum := 0.0
+	for x := s.Domain[0]; x <= s.Domain[1]; x += step {
+		sum += s.Call(x)
+	}
+	return sum
 }
 
 func (s *QuadraticScale) String() string {
@@ -272,20 +301,34 @@ func (rule *SlideRule) Scale() (Scale, error) {
 // LayerScale defines the scale DSL for maker layers, e.g.,
 //
 // quantityScale:
-//   byLayer:
-//     exp:
-//       domain: [1, 5]
-//       range: [0.01, 1.0]
+//
+//	byLayer:
+//	  exp:
+//	    domain: [1, 5]
+//	    range: [0.01, 1.0]
 //
 // and
 //
 // quantityScale:
-//   byLayer:
-//     linear:
-//       domain: [1, 3]
-//       range: [0.01, 1.0]
+//
+//	byLayer:
+//	  linear:
+//	    domain: [1, 3]
+//	    range: [0.01, 1.0]
 type LayerScale struct {
 	LayerRule *SlideRule `json:"byLayer"`
+}
+
+func (s *LayerScale) UnmarshalJSON(data []byte) error {
+	type T LayerScale
+	var p T
+	err := json.Unmarshal(data, &p)
+	if err != nil {
+		return err
+	}
+
+	*s = LayerScale(p)
+	return nil
 }
 
 func (s *LayerScale) Scale(layer int) (quantity float64, err error) {
@@ -309,18 +352,20 @@ func (s *LayerScale) Scale(layer int) (quantity float64, err error) {
 // PriceVolumeScale defines the scale DSL for strategy, e.g.,
 //
 // quantityScale:
-//   byPrice:
-//     exp:
-//       domain: [10_000, 50_000]
-//       range: [0.01, 1.0]
+//
+//	byPrice:
+//	  exp:
+//	    domain: [10_000, 50_000]
+//	    range: [0.01, 1.0]
 //
 // and
 //
 // quantityScale:
-//   byVolume:
-//     linear:
-//       domain: [10_000, 50_000]
-//       range: [0.01, 1.0]
+//
+//	byVolume:
+//	  linear:
+//	    domain: [10_000, 50_000]
+//	    range: [0.01, 1.0]
 type PriceVolumeScale struct {
 	ByPriceRule  *SlideRule `json:"byPrice"`
 	ByVolumeRule *SlideRule `json:"byVolume"`

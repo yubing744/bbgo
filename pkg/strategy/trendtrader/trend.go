@@ -14,7 +14,7 @@ type TrendLine struct {
 	Market types.Market `json:"-"`
 	types.IntervalWindow
 
-	PivotRightWindow fixedpoint.Value `json:"pivotRightWindow"`
+	PivotRightWindow int `json:"pivotRightWindow"`
 
 	// MarketOrder is the option to enable market order short.
 	MarketOrder bool `json:"marketOrder"`
@@ -35,9 +35,9 @@ func (s *TrendLine) Subscribe(session *bbgo.ExchangeSession) {
 	session.Subscribe(types.KLineChannel, s.Symbol, types.SubscribeOptions{Interval: s.Interval})
 	session.Subscribe(types.KLineChannel, s.Symbol, types.SubscribeOptions{Interval: types.Interval1m})
 
-	//if s.pivot != nil {
+	// if s.pivot != nil {
 	//	session.Subscribe(types.KLineChannel, s.Symbol, types.SubscribeOptions{Interval: s.Interval})
-	//}
+	// }
 }
 
 func (s *TrendLine) Bind(session *bbgo.ExchangeSession, orderExecutor *bbgo.GeneralOrderExecutor) {
@@ -47,8 +47,14 @@ func (s *TrendLine) Bind(session *bbgo.ExchangeSession, orderExecutor *bbgo.Gene
 	position := orderExecutor.Position()
 	symbol := position.Symbol
 	standardIndicator := session.StandardIndicatorSet(s.Symbol)
-	s.pivotHigh = standardIndicator.PivotHigh(types.IntervalWindow{s.Interval, int(3. * s.PivotRightWindow.Float64()), int(s.PivotRightWindow.Float64())})
-	s.pivotLow = standardIndicator.PivotLow(types.IntervalWindow{s.Interval, int(3. * s.PivotRightWindow.Float64()), int(s.PivotRightWindow.Float64())})
+
+	s.pivotHigh = standardIndicator.PivotHigh(types.IntervalWindow{
+		Interval: s.Interval,
+		Window:   int(3. * s.PivotRightWindow), RightWindow: &s.PivotRightWindow})
+
+	s.pivotLow = standardIndicator.PivotLow(types.IntervalWindow{
+		Interval: s.Interval,
+		Window:   int(3. * s.PivotRightWindow), RightWindow: &s.PivotRightWindow})
 
 	resistancePrices := types.NewQueue(3)
 	pivotHighDurationCounter := 0.
@@ -65,15 +71,15 @@ func (s *TrendLine) Bind(session *bbgo.ExchangeSession, orderExecutor *bbgo.Gene
 	supportSlope2 := 0.
 
 	session.MarketDataStream.OnKLineClosed(types.KLineWith(s.Symbol, s.Interval, func(kline types.KLine) {
-		if s.pivotHigh.Last() != resistancePrices.Last() {
-			resistancePrices.Update(s.pivotHigh.Last())
+		if s.pivotHigh.Last(0) != resistancePrices.Last(0) {
+			resistancePrices.Update(s.pivotHigh.Last(0))
 			resistanceDuration.Update(pivotHighDurationCounter)
 			pivotHighDurationCounter = 0
 		} else {
 			pivotHighDurationCounter++
 		}
-		if s.pivotLow.Last() != supportPrices.Last() {
-			supportPrices.Update(s.pivotLow.Last())
+		if s.pivotLow.Last(0) != supportPrices.Last(0) {
+			supportPrices.Update(s.pivotLow.Last(0))
 			supportDuration.Update(pivotLowDurationCounter)
 			pivotLowDurationCounter = 0
 		} else {
@@ -95,8 +101,8 @@ func (s *TrendLine) Bind(session *bbgo.ExchangeSession, orderExecutor *bbgo.Gene
 
 		if converge(resistanceSlope, supportSlope) {
 			// y = mx+b
-			currentResistance := resistanceSlope*pivotHighDurationCounter + resistancePrices.Last()
-			currentSupport := supportSlope*pivotLowDurationCounter + supportPrices.Last()
+			currentResistance := resistanceSlope*pivotHighDurationCounter + resistancePrices.Last(0)
+			currentSupport := supportSlope*pivotLowDurationCounter + supportPrices.Last(0)
 			log.Info(currentResistance, currentSupport, kline.Close)
 
 			if kline.High.Float64() > currentResistance {
@@ -124,7 +130,9 @@ func (s *TrendLine) Bind(session *bbgo.ExchangeSession, orderExecutor *bbgo.Gene
 	}
 }
 
-func (s *TrendLine) placeOrder(ctx context.Context, side types.SideType, quantity fixedpoint.Value, symbol string) error {
+func (s *TrendLine) placeOrder(
+	ctx context.Context, side types.SideType, quantity fixedpoint.Value, symbol string,
+) error {
 	market, _ := s.session.Market(symbol)
 	_, err := s.orderExecutor.SubmitOrders(ctx, types.SubmitOrder{
 		Symbol:   symbol,

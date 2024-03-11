@@ -50,6 +50,7 @@ var log = logrus.WithField("cmd", "backtest")
 var ErrUnimplemented = errors.New("unimplemented method")
 var ErrNegativeQuantity = errors.New("order quantity can not be negative")
 var ErrZeroQuantity = errors.New("order quantity can not be zero")
+var ErrEmptyOrderType = errors.New("order type can not be empty string")
 
 type Exchange struct {
 	sourceName     types.ExchangeName
@@ -76,7 +77,9 @@ type Exchange struct {
 	Src *ExchangeDataSource
 }
 
-func NewExchange(sourceName types.ExchangeName, sourceExchange types.Exchange, srv *service.BacktestService, config *bbgo.Backtest) (*Exchange, error) {
+func NewExchange(
+	sourceName types.ExchangeName, sourceExchange types.Exchange, srv *service.BacktestService, config *bbgo.Backtest,
+) (*Exchange, error) {
 	ex := sourceExchange
 
 	markets, err := cache.LoadExchangeMarketsWithCache(context.Background(), ex)
@@ -178,12 +181,20 @@ func (e *Exchange) SubmitOrder(ctx context.Context, order types.SubmitOrder) (cr
 		return nil, fmt.Errorf("matching engine is not initialized for symbol %s", symbol)
 	}
 
+	if order.Price.Sign() < 0 {
+		return nil, fmt.Errorf("order price can not be negative, %s given", order.Price.String())
+	}
+
 	if order.Quantity.Sign() < 0 {
 		return nil, ErrNegativeQuantity
 	}
 
 	if order.Quantity.IsZero() {
 		return nil, ErrZeroQuantity
+	}
+
+	if order.Type == "" {
+		return nil, ErrEmptyOrderType
 	}
 
 	createdOrder, _, err = matching.PlaceOrder(order)
@@ -207,7 +218,9 @@ func (e *Exchange) QueryOpenOrders(ctx context.Context, symbol string) (orders [
 	return append(matching.bidOrders, matching.askOrders...), nil
 }
 
-func (e *Exchange) QueryClosedOrders(ctx context.Context, symbol string, since, until time.Time, lastOrderID uint64) (orders []types.Order, err error) {
+func (e *Exchange) QueryClosedOrders(
+	ctx context.Context, symbol string, since, until time.Time, lastOrderID uint64,
+) (orders []types.Order, err error) {
 	orders, ok := e.closedOrders[symbol]
 	if !ok {
 		return orders, fmt.Errorf("matching engine is not initialized for symbol %s", symbol)
@@ -239,19 +252,23 @@ func (e *Exchange) QueryAccountBalances(ctx context.Context) (types.BalanceMap, 
 	return e.account.Balances(), nil
 }
 
-func (e *Exchange) QueryKLines(ctx context.Context, symbol string, interval types.Interval, options types.KLineQueryOptions) ([]types.KLine, error) {
+func (e *Exchange) QueryKLines(
+	ctx context.Context, symbol string, interval types.Interval, options types.KLineQueryOptions,
+) ([]types.KLine, error) {
 	if options.EndTime != nil {
-		return e.srv.QueryKLinesBackward(e.sourceName, symbol, interval, *options.EndTime, 1000)
+		return e.srv.QueryKLinesBackward(e, symbol, interval, *options.EndTime, 1000)
 	}
 
 	if options.StartTime != nil {
-		return e.srv.QueryKLinesForward(e.sourceName, symbol, interval, *options.StartTime, 1000)
+		return e.srv.QueryKLinesForward(e, symbol, interval, *options.StartTime, 1000)
 	}
 
 	return nil, errors.New("endTime or startTime can not be nil")
 }
 
-func (e *Exchange) QueryTrades(ctx context.Context, symbol string, options *types.TradeQueryOptions) ([]types.Trade, error) {
+func (e *Exchange) QueryTrades(
+	ctx context.Context, symbol string, options *types.TradeQueryOptions,
+) ([]types.Trade, error) {
 	// we don't need query trades for backtest
 	return nil, nil
 }
@@ -270,8 +287,8 @@ func (e *Exchange) QueryTicker(ctx context.Context, symbol string) (*types.Ticke
 		Open:   kline.Open,
 		High:   kline.High,
 		Low:    kline.Low,
-		Buy:    kline.Close,
-		Sell:   kline.Close,
+		Buy:    kline.Close.Sub(matching.Market.TickSize),
+		Sell:   kline.Close.Add(matching.Market.TickSize),
 	}, nil
 }
 
@@ -292,11 +309,15 @@ func (e *Exchange) QueryMarkets(ctx context.Context) (types.MarketMap, error) {
 	return e.markets, nil
 }
 
-func (e *Exchange) QueryDepositHistory(ctx context.Context, asset string, since, until time.Time) (allDeposits []types.Deposit, err error) {
+func (e *Exchange) QueryDepositHistory(
+	ctx context.Context, asset string, since, until time.Time,
+) (allDeposits []types.Deposit, err error) {
 	return nil, nil
 }
 
-func (e *Exchange) QueryWithdrawHistory(ctx context.Context, asset string, since, until time.Time) (allWithdraws []types.Withdraw, err error) {
+func (e *Exchange) QueryWithdrawHistory(
+	ctx context.Context, asset string, since, until time.Time,
+) (allWithdraws []types.Withdraw, err error) {
 	return nil, nil
 }
 
@@ -321,7 +342,9 @@ func (e *Exchange) BindUserData(userDataStream types.StandardStreamEmitter) {
 	e.matchingBooksMutex.Unlock()
 }
 
-func (e *Exchange) SubscribeMarketData(startTime, endTime time.Time, requiredInterval types.Interval, extraIntervals ...types.Interval) (chan types.KLine, error) {
+func (e *Exchange) SubscribeMarketData(
+	startTime, endTime time.Time, requiredInterval types.Interval, extraIntervals ...types.Interval,
+) (chan types.KLine, error) {
 	log.Infof("collecting backtest configurations...")
 
 	loadedSymbols := map[string]struct{}{}
@@ -358,8 +381,28 @@ func (e *Exchange) SubscribeMarketData(startTime, endTime time.Time, requiredInt
 		intervals = append(intervals, interval)
 	}
 
-	log.Infof("querying klines from database with exchange: %v symbols: %v and intervals: %v for back-testing", e.Name(), symbols, intervals)
-	klineC, errC := e.srv.QueryKLinesCh(startTime, endTime, e, symbols, intervals)
+	var isFutures bool
+	if futuresExchange, ok := e.publicExchange.(types.FuturesExchange); ok {
+		isFutures = futuresExchange.GetFuturesSettings().IsFutures
+	} else {
+		isFutures = false
+	}
+
+	if isFutures {
+		log.Infof("querying futures klines from database with exchange: %v symbols: %v and intervals: %v for back-testing", e.Name(), symbols, intervals)
+	} else {
+		log.Infof("querying klines from database with exchange: %v symbols: %v and intervals: %v for back-testing", e.Name(), symbols, intervals)
+	}
+
+	if len(symbols) == 0 {
+		log.Warnf("empty symbols, will not query kline data from the database")
+
+		c := make(chan types.KLine)
+		close(c)
+		return c, nil
+	}
+
+	klineC, errC := e.srv.QueryKLinesCh(startTime, endTime, e.publicExchange, symbols, intervals)
 	go func() {
 		if err := <-errC; err != nil {
 			log.WithError(err).Error("backtest data feed error")

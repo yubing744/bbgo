@@ -5,7 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/c9s/bbgo/pkg/exchange/max/maxapi"
+	max "github.com/c9s/bbgo/pkg/exchange/max/maxapi"
+	v3 "github.com/c9s/bbgo/pkg/exchange/max/maxapi/v3"
 	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/types"
 )
@@ -66,7 +67,9 @@ func toGlobalRewards(maxRewards []max.Reward) ([]types.Reward, error) {
 	return rewards, nil
 }
 
-func toGlobalOrderStatus(orderState max.OrderState, executedVolume, remainingVolume fixedpoint.Value) types.OrderStatus {
+func toGlobalOrderStatus(
+	orderState max.OrderState, executedVolume, remainingVolume fixedpoint.Value,
+) types.OrderStatus {
 	switch orderState {
 
 	case max.OrderStateCancel:
@@ -100,7 +103,7 @@ func toGlobalOrderStatus(orderState max.OrderState, executedVolume, remainingVol
 
 	}
 
-	log.Errorf("unknown order status: %v", orderState)
+	log.Errorf("can not convert MAX exchange order status, unknown order state: %q", orderState)
 	return types.OrderStatus(orderState)
 }
 
@@ -157,9 +160,9 @@ func toGlobalOrders(maxOrders []max.Order) (orders []types.Order, err error) {
 		o, err := toGlobalOrder(localOrder)
 		if err != nil {
 			log.WithError(err).Error("order convert error")
+		} else {
+			orders = append(orders, *o)
 		}
-
-		orders = append(orders, *o)
 	}
 
 	return orders, err
@@ -169,7 +172,6 @@ func toGlobalOrder(maxOrder max.Order) (*types.Order, error) {
 	executedVolume := maxOrder.ExecutedVolume
 	remainingVolume := maxOrder.RemainingVolume
 	isMargin := maxOrder.WalletType == max.WalletTypeMargin
-
 	return &types.Order{
 		SubmitOrder: types.SubmitOrder{
 			ClientOrderID: maxOrder.ClientOID,
@@ -185,15 +187,61 @@ func toGlobalOrder(maxOrder max.Order) (*types.Order, error) {
 		IsWorking:        maxOrder.State == max.OrderStateWait,
 		OrderID:          maxOrder.ID,
 		Status:           toGlobalOrderStatus(maxOrder.State, executedVolume, remainingVolume),
+		OriginalStatus:   string(maxOrder.State),
 		ExecutedQuantity: executedVolume,
 		CreationTime:     types.Time(maxOrder.CreatedAt.Time()),
-		UpdateTime:       types.Time(maxOrder.CreatedAt.Time()),
+		UpdateTime:       types.Time(maxOrder.UpdatedAt.Time()),
 		IsMargin:         isMargin,
 		IsIsolated:       false, // isolated margin is not supported
 	}, nil
 }
 
-func toGlobalTrade(t max.Trade) (*types.Trade, error) {
+func toGlobalTradeV3(t v3.Trade) ([]types.Trade, error) {
+	var trades []types.Trade
+	isMargin := t.WalletType == max.WalletTypeMargin
+	side := toGlobalSideType(t.Side)
+
+	trade := types.Trade{
+		ID:            t.ID,
+		OrderID:       t.OrderID,
+		Price:         t.Price,
+		Symbol:        toGlobalSymbol(t.Market),
+		Exchange:      types.ExchangeMax,
+		Quantity:      t.Volume,
+		Side:          side,
+		IsBuyer:       t.IsBuyer(),
+		IsMaker:       t.IsMaker(),
+		Fee:           t.Fee,
+		FeeCurrency:   toGlobalCurrency(t.FeeCurrency),
+		FeeDiscounted: t.FeeDiscounted,
+		QuoteQuantity: t.Funds,
+		Time:          types.Time(t.CreatedAt),
+		IsMargin:      isMargin,
+		IsIsolated:    false,
+		IsFutures:     false,
+	}
+
+	if t.Side == "self-trade" {
+		trade.Side = types.SideTypeSell
+
+		// create trade for bid
+		bidTrade := trade
+		bidTrade.Side = types.SideTypeBuy
+		bidTrade.OrderID = t.SelfTradeBidOrderID
+		bidTrade.Fee = t.SelfTradeBidFee
+		bidTrade.FeeCurrency = toGlobalCurrency(t.SelfTradeBidFeeCurrency)
+		bidTrade.FeeDiscounted = t.SelfTradeBidFeeDiscounted
+		bidTrade.IsBuyer = !trade.IsBuyer
+		bidTrade.IsMaker = !trade.IsMaker
+		trades = append(trades, bidTrade)
+	}
+
+	trades = append(trades, trade)
+
+	return trades, nil
+}
+
+func toGlobalTradeV2(t max.Trade) (*types.Trade, error) {
 	isMargin := t.WalletType == max.WalletTypeMargin
 	side := toGlobalSideType(t.Side)
 	return &types.Trade{
@@ -216,24 +264,25 @@ func toGlobalTrade(t max.Trade) (*types.Trade, error) {
 	}, nil
 }
 
-func toGlobalDepositStatus(a string) types.DepositStatus {
+func toGlobalDepositStatus(a max.DepositState) types.DepositStatus {
 	switch a {
-	case "submitting", "submitted", "checking":
+
+	case max.DepositStateSubmitting, max.DepositStateSubmitted, max.DepositStatePending, max.DepositStateChecking:
 		return types.DepositPending
 
-	case "accepted":
-		return types.DepositSuccess
-
-	case "rejected":
+	case max.DepositStateRejected:
 		return types.DepositRejected
 
-	case "canceled":
+	case max.DepositStateCancelled:
 		return types.DepositCancelled
 
-	case "suspect", "refunded":
-
+	case max.DepositStateAccepted:
+		return types.DepositSuccess
 	}
 
+	// other states goes to this
+	// max.DepositStateSuspect, max.DepositStateSuspended
+	log.Warnf("unsupported deposit state %q from max exchange", a)
 	return types.DepositStatus(a)
 }
 
@@ -241,40 +290,21 @@ func convertWebSocketTrade(t max.TradeUpdate) (*types.Trade, error) {
 	// skip trade ID that is the same. however this should not happen
 	var side = toGlobalSideType(t.Side)
 
-	// trade time
-	mts := time.Unix(0, t.Timestamp*int64(time.Millisecond))
-
-	price, err := fixedpoint.NewFromString(t.Price)
-	if err != nil {
-		return nil, err
-	}
-
-	quantity, err := fixedpoint.NewFromString(t.Volume)
-	if err != nil {
-		return nil, err
-	}
-
-	quoteQuantity := price.Mul(quantity)
-
-	fee, err := fixedpoint.NewFromString(t.Fee)
-	if err != nil {
-		return nil, err
-	}
-
 	return &types.Trade{
 		ID:            t.ID,
 		OrderID:       t.OrderID,
 		Symbol:        toGlobalSymbol(t.Market),
 		Exchange:      types.ExchangeMax,
-		Price:         price,
-		Quantity:      quantity,
+		Price:         t.Price,
+		Quantity:      t.Volume,
 		Side:          side,
 		IsBuyer:       side == types.SideTypeBuy,
 		IsMaker:       t.Maker,
-		Fee:           fee,
+		Fee:           t.Fee,
 		FeeCurrency:   toGlobalCurrency(t.FeeCurrency),
-		QuoteQuantity: quoteQuantity,
-		Time:          types.Time(mts),
+		FeeDiscounted: t.FeeDiscounted,
+		QuoteQuantity: t.Funds,
+		Time:          types.Time(t.Timestamp.Time()),
 	}, nil
 }
 
@@ -301,6 +331,6 @@ func convertWebSocketOrderUpdate(u max.OrderUpdate) (*types.Order, error) {
 		Status:           toGlobalOrderStatus(u.State, u.ExecutedVolume, u.RemainingVolume),
 		ExecutedQuantity: u.ExecutedVolume,
 		CreationTime:     types.Time(time.Unix(0, u.CreatedAtMs*int64(time.Millisecond))),
-		UpdateTime:       types.Time(time.Unix(0, u.CreatedAtMs*int64(time.Millisecond))),
+		UpdateTime:       types.Time(time.Unix(0, u.UpdateTime*int64(time.Millisecond))),
 	}, nil
 }

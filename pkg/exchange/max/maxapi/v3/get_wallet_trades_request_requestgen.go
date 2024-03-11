@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/c9s/bbgo/pkg/exchange/max/maxapi"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -39,7 +38,7 @@ func (g *GetWalletTradesRequest) Limit(limit uint64) *GetWalletTradesRequest {
 	return g
 }
 
-func (g *GetWalletTradesRequest) WalletType(walletType max.WalletType) *GetWalletTradesRequest {
+func (g *GetWalletTradesRequest) WalletType(walletType WalletType) *GetWalletTradesRequest {
 	g.walletType = walletType
 	return g
 }
@@ -198,7 +197,7 @@ func (g *GetWalletTradesRequest) GetSlugsMap() (map[string]string, error) {
 	return slugs, nil
 }
 
-func (g *GetWalletTradesRequest) Do(ctx context.Context) ([]max.Trade, error) {
+func (g *GetWalletTradesRequest) Do(ctx context.Context) ([]Trade, error) {
 
 	// empty params for GET operation
 	var params interface{}
@@ -225,7 +224,7 @@ func (g *GetWalletTradesRequest) Do(ctx context.Context) ([]max.Trade, error) {
 		return nil, err
 	}
 
-	var apiResponse []max.Trade
+	var apiResponse []Trade
 	if err := response.DecodeJSON(&apiResponse); err != nil {
 		return nil, err
 	}

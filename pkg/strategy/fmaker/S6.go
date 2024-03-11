@@ -21,7 +21,7 @@ type S6 struct {
 	UpdateCallbacks []func(val float64)
 }
 
-func (inc *S6) Last() float64 {
+func (inc *S6) Last(int) float64 {
 	if len(inc.Values) == 0 {
 		return 0.0
 	}
@@ -42,7 +42,7 @@ func (inc *S6) CalculateAndUpdate(klines []types.KLine) {
 
 	var recentT = klines[end-(inc.Window-1) : end+1]
 
-	val, err := calculateS6(recentT, indicator.KLineHighPriceMapper, indicator.KLineLowPriceMapper, indicator.KLineClosePriceMapper, indicator.KLineVolumeMapper)
+	val, err := calculateS6(recentT, types.KLineHighPriceMapper, types.KLineLowPriceMapper, types.KLineClosePriceMapper, types.KLineVolumeMapper)
 	if err != nil {
 		log.WithError(err).Error("can not calculate")
 		return
@@ -90,10 +90,10 @@ func calculateS6(klines []types.KLine, valHigh KLineValueMapper, valLow KLineVal
 
 	}
 
-	H := highs.Last()
-	L := lows.Last()
-	C := closes.Last()
-	V := volumes.Last()
+	H := highs.Last(0)
+	L := lows.Last(0)
+	C := closes.Last(0)
+	V := volumes.Last(0)
 	alpha := (H + L + C) / 3 * V
 
 	return alpha, nil

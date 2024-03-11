@@ -17,10 +17,11 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	prefixed "github.com/x-cray/logrus-prefixed-formatter"
 
 	"github.com/c9s/bbgo/pkg/bbgo"
 	"github.com/c9s/bbgo/pkg/util"
+
+	_ "time/tzdata"
 
 	_ "github.com/go-sql-driver/mysql"
 )
@@ -46,9 +47,19 @@ var RootCmd = &cobra.Command{
 			log.SetLevel(log.DebugLevel)
 		}
 
-		env := os.Getenv("BBGO_ENV")
-		if env == "" {
-			env = "development"
+		env := bbgo.GetCurrentEnv()
+
+		logFormatter, err := cmd.Flags().GetString("log-formatter")
+		if err != nil {
+			return err
+		}
+
+		if len(logFormatter) == 0 {
+			formatter := bbgo.NewLogFormatterWithEnv(env)
+			log.SetFormatter(formatter)
+		} else {
+			formatter := bbgo.NewLogFormatter(bbgo.LogFormatterType(logFormatter))
+			log.SetFormatter(formatter)
 		}
 
 		if token := viper.GetString("rollbar-token"); token != "" {
@@ -165,6 +176,8 @@ func init() {
 
 	RootCmd.PersistentFlags().String("config", "bbgo.yaml", "config file")
 
+	RootCmd.PersistentFlags().String("log-formatter", "", "configure log formatter")
+
 	RootCmd.PersistentFlags().String("rollbar-token", "", "rollbar token")
 
 	// A flag can be 'persistent' meaning that this flag will be available to
@@ -183,9 +196,6 @@ func init() {
 	RootCmd.PersistentFlags().String("max-api-key", "", "max api key")
 	RootCmd.PersistentFlags().String("max-api-secret", "", "max api secret")
 
-	RootCmd.PersistentFlags().String("ftx-api-key", "", "ftx api key")
-	RootCmd.PersistentFlags().String("ftx-api-secret", "", "ftx api secret")
-	RootCmd.PersistentFlags().String("ftx-subaccount", "", "subaccount name. Specify it if the credential is for subaccount.")
 	RootCmd.PersistentFlags().String("cpu-profile", "", "cpu profile")
 
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
@@ -214,10 +224,6 @@ func init() {
 		return
 	}
 
-	log.SetFormatter(&prefixed.TextFormatter{})
-}
-
-func Execute() {
 	environment := os.Getenv("BBGO_ENV")
 	logDir := "log"
 	switch environment {
@@ -234,8 +240,8 @@ func Execute() {
 		if err != nil {
 			log.Panic(err)
 		}
-		logger := log.StandardLogger()
-		logger.AddHook(
+
+		log.AddHook(
 			lfshook.NewHook(
 				lfshook.WriterMap{
 					log.DebugLevel: writer,
@@ -243,12 +249,13 @@ func Execute() {
 					log.WarnLevel:  writer,
 					log.ErrorLevel: writer,
 					log.FatalLevel: writer,
-				},
-				&log.JSONFormatter{},
-			),
+				}, &log.JSONFormatter{}),
 		)
-	}
 
+	}
+}
+
+func Execute() {
 	if err := RootCmd.Execute(); err != nil {
 		log.WithError(err).Fatalf("cannot execute command")
 	}

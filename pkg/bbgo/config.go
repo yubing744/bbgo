@@ -21,7 +21,9 @@ import (
 
 // DefaultFeeRate set the fee rate for most cases
 // BINANCE uses 0.1% for both maker and taker
-//  for BNB holders, it's 0.075% for both maker and taker
+//
+//	for BNB holders, it's 0.075% for both maker and taker
+//
 // MAX uses 0.050% for maker and 0.15% for taker
 var DefaultFeeRate = fixedpoint.NewFromFloat(0.075 * 0.01)
 
@@ -87,6 +89,14 @@ type NotificationConfig struct {
 	Slack    *SlackNotification    `json:"slack,omitempty" yaml:"slack,omitempty"`
 	Telegram *TelegramNotification `json:"telegram,omitempty" yaml:"telegram,omitempty"`
 	Switches *NotificationSwitches `json:"switches" yaml:"switches"`
+}
+
+type LoggingConfig struct {
+	Trade           bool                   `json:"trade,omitempty"`
+	Order           bool                   `json:"order,omitempty"`
+	Balance         bool                   `json:"balance,omitempty"`
+	FilledOrderOnly bool                   `json:"filledOrder,omitempty"`
+	Fields          map[string]interface{} `json:"fields,omitempty"`
 }
 
 type Session struct {
@@ -307,6 +317,37 @@ type SyncConfig struct {
 	} `json:"userDataStream,omitempty" yaml:"userDataStream,omitempty"`
 }
 
+type GoogleSpreadSheetServiceConfig struct {
+	JsonTokenFile string `json:"jsonTokenFile" yaml:"jsonTokenFile"`
+	SpreadSheetID string `json:"spreadSheetId" yaml:"spreadSheetId"`
+}
+
+type ServiceConfig struct {
+	GoogleSpreadSheetService *GoogleSpreadSheetServiceConfig `json:"googleSpreadSheet" yaml:"googleSpreadSheet"`
+}
+
+type DatabaseConfig struct {
+	Driver string `json:"driver" yaml:"driver"`
+	DSN    string `json:"dsn" yaml:"dsn"`
+
+	ExtraMigrationPackages []string `json:"extraMigrationPackages" yaml:"extraMigrationPackages"`
+}
+
+type EnvironmentConfig struct {
+	DisableDefaultKLineSubscription bool `json:"disableDefaultKLineSubscription"`
+	DisableHistoryKLinePreload      bool `json:"disableHistoryKLinePreload"`
+
+	// DisableStartUpBalanceQuery disables the balance query in the startup process
+	// which initializes the session.Account with the QueryAccount method.
+	DisableStartupBalanceQuery bool `json:"disableStartupBalanceQuery"`
+
+	DisableSessionTradeBuffer bool `json:"disableSessionTradeBuffer"`
+
+	DisableMarketDataStore bool `json:"disableMarketDataStore"`
+
+	MaxSessionTradeBufferSize int `json:"maxSessionTradeBufferSize"`
+}
+
 type Config struct {
 	Build *BuildConfig `json:"build,omitempty" yaml:"build,omitempty"`
 
@@ -322,9 +363,17 @@ type Config struct {
 
 	Persistence *PersistenceConfig `json:"persistence,omitempty" yaml:"persistence,omitempty"`
 
+	Service *ServiceConfig `json:"services,omitempty" yaml:"services,omitempty"`
+
+	DatabaseConfig *DatabaseConfig `json:"database,omitempty" yaml:"database,omitempty"`
+
+	Environment *EnvironmentConfig `json:"environment,omitempty" yaml:"environment,omitempty"`
+
 	Sessions map[string]*ExchangeSession `json:"sessions,omitempty" yaml:"sessions,omitempty"`
 
 	RiskControls *RiskControls `json:"riskControls,omitempty" yaml:"riskControls,omitempty"`
+
+	Logging *LoggingConfig `json:"logging,omitempty"`
 
 	ExchangeStrategies      []ExchangeStrategyMount `json:"-" yaml:"-"`
 	CrossExchangeStrategies []CrossExchangeStrategy `json:"-" yaml:"-"`

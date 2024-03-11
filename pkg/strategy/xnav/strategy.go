@@ -2,24 +2,22 @@ package xnav
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
-	"github.com/c9s/bbgo/pkg/fixedpoint"
-	"github.com/c9s/bbgo/pkg/util/templateutil"
-
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	"github.com/slack-go/slack"
-
 	"github.com/c9s/bbgo/pkg/bbgo"
+	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/types"
 	"github.com/c9s/bbgo/pkg/util"
+	"github.com/c9s/bbgo/pkg/util/templateutil"
+
+	"github.com/robfig/cron/v3"
+	"github.com/sirupsen/logrus"
+	"github.com/slack-go/slack"
 )
 
 const ID = "xnav"
-
-const stateKey = "state-v1"
 
 var log = logrus.WithField("strategy", ID)
 
@@ -61,14 +59,28 @@ type Strategy struct {
 	*bbgo.Environment
 
 	Interval      types.Interval `json:"interval"`
+	Schedule      string         `json:"schedule"`
 	ReportOnStart bool           `json:"reportOnStart"`
 	IgnoreDusts   bool           `json:"ignoreDusts"`
 
 	State *State `persistence:"state"`
+
+	cron *cron.Cron
 }
 
 func (s *Strategy) ID() string {
 	return ID
+}
+
+func (s *Strategy) Initialize() error {
+	return nil
+}
+
+func (s *Strategy) Validate() error {
+	if s.Interval == "" && s.Schedule == "" {
+		return fmt.Errorf("interval or schedule is required")
+	}
+	return nil
 }
 
 var Ten = fixedpoint.NewFromInt(10)
@@ -82,7 +94,13 @@ func (s *Strategy) recordNetAssetValue(ctx context.Context, sessions map[string]
 	priceTime := time.Now()
 
 	// iterate the sessions and record them
+	quoteCurrency := "USDT"
 	for sessionName, session := range sessions {
+		if session.PublicOnly {
+			log.Infof("session %s is public only, skip", sessionName)
+			continue
+		}
+
 		// update the account balances and the margin information
 		if _, err := session.UpdateAccount(ctx); err != nil {
 			log.WithError(err).Errorf("can not update account")
@@ -91,7 +109,7 @@ func (s *Strategy) recordNetAssetValue(ctx context.Context, sessions map[string]
 
 		account := session.GetAccount()
 		balances := account.Balances()
-		if err := session.UpdatePrices(ctx, balances.Currencies(), "USDT"); err != nil {
+		if err := session.UpdatePrices(ctx, balances.Currencies(), quoteCurrency); err != nil {
 			log.WithError(err).Error("price update failed")
 			return
 		}
@@ -134,10 +152,6 @@ func (s *Strategy) recordNetAssetValue(ctx context.Context, sessions map[string]
 }
 
 func (s *Strategy) CrossRun(ctx context.Context, _ bbgo.OrderExecutionRouter, sessions map[string]*bbgo.ExchangeSession) error {
-	if s.Interval == "" {
-		return errors.New("interval can not be empty")
-	}
-
 	if s.State == nil {
 		s.State = &State{}
 		s.State.Reset()
@@ -157,25 +171,32 @@ func (s *Strategy) CrossRun(ctx context.Context, _ bbgo.OrderExecutionRouter, se
 		log.Warnf("xnav does not support backtesting")
 	}
 
-	// TODO: if interval is supported, we can use kline as the ticker
-	if _, ok := types.SupportedIntervals[s.Interval]; ok {
+	if s.Interval != "" {
+		go func() {
+			ticker := time.NewTicker(util.MillisecondsJitter(s.Interval.Duration(), 1000))
+			defer ticker.Stop()
 
-	}
+			for {
+				select {
+				case <-ctx.Done():
+					return
 
-	go func() {
-		ticker := time.NewTicker(util.MillisecondsJitter(s.Interval.Duration(), 1000))
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-
-			case <-ticker.C:
-				s.recordNetAssetValue(ctx, sessions)
+				case <-ticker.C:
+					s.recordNetAssetValue(ctx, sessions)
+				}
 			}
+		}()
+
+	} else if s.Schedule != "" {
+		s.cron = cron.New()
+		_, err := s.cron.AddFunc(s.Schedule, func() {
+			s.recordNetAssetValue(ctx, sessions)
+		})
+		if err != nil {
+			return err
 		}
-	}()
+		s.cron.Start()
+	}
 
 	return nil
 }

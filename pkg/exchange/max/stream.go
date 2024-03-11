@@ -5,8 +5,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +21,8 @@ type Stream struct {
 	types.MarginSettings
 
 	key, secret string
+
+	privateChannels []string
 
 	authEventCallbacks         []func(e max.AuthEvent)
 	bookEventCallbacks         []func(e max.BookEvent)
@@ -51,6 +53,11 @@ func NewStream(key, secret string) *Stream {
 	stream.SetParser(max.ParseMessage)
 	stream.SetDispatcher(stream.dispatchEvent)
 	stream.OnConnect(stream.handleConnect)
+	stream.OnAuthEvent(func(e max.AuthEvent) {
+		log.Infof("max websocket connection authenticated: %+v", e)
+		stream.EmitAuth()
+	})
+
 	stream.OnKLineEvent(stream.handleKLineEvent)
 	stream.OnOrderSnapshotEvent(stream.handleOrderSnapshotEvent)
 	stream.OnOrderUpdateEvent(stream.handleOrderUpdateEvent)
@@ -69,6 +76,10 @@ func (s *Stream) getEndpoint(ctx context.Context) (string, error) {
 	return url, nil
 }
 
+func (s *Stream) SetPrivateChannels(channels []string) {
+	s.privateChannels = channels
+}
+
 func (s *Stream) handleConnect() {
 	if s.PublicOnly {
 		cmd := &max.WebsocketCommand{
@@ -80,13 +91,19 @@ func (s *Stream) handleConnect() {
 			if len(sub.Options.Depth) > 0 {
 				switch sub.Options.Depth {
 				case types.DepthLevelFull:
-					depth = 0
+					depth = 50
 
 				case types.DepthLevelMedium:
 					depth = 20
 
+				case types.DepthLevel1:
+					depth = 1
+
 				case types.DepthLevel5:
 					depth = 5
+
+				default:
+					depth = 20
 
 				}
 			}
@@ -105,7 +122,11 @@ func (s *Stream) handleConnect() {
 
 	} else {
 		var filters []string
-		if s.MarginSettings.IsMargin {
+
+		if len(s.privateChannels) > 0 {
+			// TODO: maybe check the valid private channels
+			filters = s.privateChannels
+		} else if s.MarginSettings.IsMargin {
 			filters = []string{
 				"mwallet_order",
 				"mwallet_trade",
@@ -115,6 +136,8 @@ func (s *Stream) handleConnect() {
 			}
 		}
 
+		log.Debugf("user data websocket filters: %v", filters)
+
 		nonce := time.Now().UnixNano() / int64(time.Millisecond)
 		auth := &max.AuthMessage{
 			// pragma: allowlist nextline secret
@@ -122,7 +145,7 @@ func (s *Stream) handleConnect() {
 			// pragma: allowlist nextline secret
 			APIKey:    s.key,
 			Nonce:     nonce,
-			Signature: signPayload(fmt.Sprintf("%d", nonce), s.secret),
+			Signature: signPayload(strconv.FormatInt(nonce, 10), s.secret),
 			ID:        uuid.New().String(),
 			Filters:   filters,
 		}
@@ -185,6 +208,7 @@ func (s *Stream) handleBookEvent(e max.BookEvent) {
 	}
 
 	newBook.Symbol = toGlobalSymbol(e.Market)
+	newBook.Time = e.Time()
 
 	switch e.Event {
 	case "snapshot":

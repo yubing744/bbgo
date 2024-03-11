@@ -105,8 +105,8 @@ type MarginLiquidation struct {
 	UpdatedTime      Time             `json:"updatedTime" db:"time"`
 }
 
-// MarginHistory provides the service of querying loan history and repay history
-type MarginHistory interface {
+// MarginHistoryService provides the service of querying loan history and repay history
+type MarginHistoryService interface {
 	QueryLoanHistory(ctx context.Context, asset string, startTime, endTime *time.Time) ([]MarginLoan, error)
 	QueryRepayHistory(ctx context.Context, asset string, startTime, endTime *time.Time) ([]MarginRepay, error)
 	QueryLiquidationHistory(ctx context.Context, startTime, endTime *time.Time) ([]MarginLiquidation, error)
@@ -119,8 +119,8 @@ type MarginSettings struct {
 	IsolatedMarginSymbol string
 }
 
-func (e MarginSettings) GetMarginSettings() MarginSettings {
-	return e
+func (e *MarginSettings) GetMarginSettings() MarginSettings {
+	return *e
 }
 
 func (e *MarginSettings) UseMargin() {
