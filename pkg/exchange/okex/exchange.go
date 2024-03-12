@@ -335,7 +335,13 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 		return nil, err
 	}
 
-	orderReq.TradeMode("cross") // Margin mode cross isolated
+	// Margin mode cross isolated
+	if e.IsIsolatedMargin {
+		orderReq.TradeMode("isolated")
+	} else {
+		orderReq.TradeMode("cross")
+	}
+
 	orderReq.MarginCurrency(order.Market.QuoteCurrency)
 	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
 	orderReq.Side(toLocalSideType(order.Side))
