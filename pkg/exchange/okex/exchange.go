@@ -226,11 +226,6 @@ func (e *Exchange) SubmitOrder(ctx context.Context, order types.SubmitOrder) (*t
 func (e *Exchange) submitSpotOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
 	orderReq := e.client.NewPlaceOrderRequest()
 
-	orderType, err := toLocalOrderType(order.Type)
-	if err != nil {
-		return nil, err
-	}
-
 	orderReq.TradeMode("cash")
 	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
 	orderReq.Side(toLocalSideType(order.Side))
@@ -251,7 +246,7 @@ func (e *Exchange) submitSpotOrder(ctx context.Context, order types.SubmitOrder)
 		}
 	}
 
-	orderType, err = toLocalOrderType(order.Type)
+	orderType, err := toLocalOrderType(order.Type)
 	if err != nil {
 		return nil, err
 	}
@@ -409,7 +404,7 @@ func (e *Exchange) submitClosePositionOrder(ctx context.Context, order types.Sub
 	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
 
 	orderReq.MarginMode("cross")
-	orderReq.CCY(order.Market.QuoteCurrency)
+	orderReq.Ccy(order.Market.QuoteCurrency)
 
 	if e.IsIsolatedMargin {
 		orderReq.MarginMode("isolated")
