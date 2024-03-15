@@ -225,12 +225,12 @@ func (p *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 		params["tpOrdPx"] = takeProfitOrdPx
 	} else {
 	}
-	// check takeProfitTriggerPxType field -> json key tpOrdPx
+	// check takeProfitTriggerPxType field -> json key tpTriggerPxType
 	if p.takeProfitTriggerPxType != nil {
 		takeProfitTriggerPxType := *p.takeProfitTriggerPxType
 
 		// assign parameter of takeProfitTriggerPxType
-		params["tpOrdPx"] = takeProfitTriggerPxType
+		params["tpTriggerPxType"] = takeProfitTriggerPxType
 	} else {
 	}
 	// check stopLossTriggerPx field -> json key slTriggerPx

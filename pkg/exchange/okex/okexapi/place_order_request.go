@@ -81,7 +81,7 @@ type PlaceOrderRequest struct {
 	// Take-profit order price
 	takeProfitOrdPx *string `param:"tpOrdPx"`
 	// Take-profit trigger price type
-	takeProfitTriggerPxType *string `param:"tpOrdPx"`
+	takeProfitTriggerPxType *string `param:"tpTriggerPxType"`
 
 	// Stop-loss trigger price
 	stopLossTriggerPx *string `param:"slTriggerPx"`

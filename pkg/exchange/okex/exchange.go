@@ -375,13 +375,14 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 
 	// Set stop loss trigger price
 	if order.StopPrice.Compare(fixedpoint.Zero) > 0 {
-		orderReq.StopLossTriggerPxType("mark")
+		orderReq.StopLossTriggerPxType("last")
 		orderReq.StopLossTriggerPx(order.Market.FormatPrice(order.StopPrice))
+		orderReq.StopLossOrdPx("-1")
 	}
 
 	// Set take profit trigger price
 	if order.TakePrice.Compare(fixedpoint.Zero) > 0 {
-		orderReq.TakeProfitTriggerPxType("limit")
+		orderReq.TakeProfitTriggerPxType("last")
 		orderReq.TakeProfitTriggerPx(order.Market.FormatPrice(order.TakePrice))
 		orderReq.TakeProfitOrdPx("-1")
 	}
