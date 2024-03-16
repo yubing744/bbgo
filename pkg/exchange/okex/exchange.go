@@ -337,9 +337,9 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 
 	// Margin mode cross isolated
 	if e.IsIsolatedMargin {
-		orderReq.TradeMode("isolated")
+		orderReq.TradeMode(okexapi.TradeModeIsolated)
 	} else {
-		orderReq.TradeMode("cross")
+		orderReq.TradeMode(okexapi.TradeModeCross)
 	}
 
 	orderReq.MarginCurrency(order.Market.QuoteCurrency)
@@ -375,12 +375,16 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 
 	// Set stop loss trigger price
 	if order.StopPrice.Compare(fixedpoint.Zero) > 0 {
-		orderReq.StopLossTriggerPx(order.StopPrice.FormatString(8))
+		orderReq.StopLossTriggerPxType("last")
+		orderReq.StopLossTriggerPx(order.Market.FormatPrice(order.StopPrice))
+		orderReq.StopLossOrdPx("-1")
 	}
 
 	// Set take profit trigger price
 	if order.TakePrice.Compare(fixedpoint.Zero) > 0 {
-		orderReq.TakeProfitTriggerPx(order.TakePrice.FormatString(8))
+		orderReq.TakeProfitTriggerPxType("last")
+		orderReq.TakeProfitTriggerPx(order.Market.FormatPrice(order.TakePrice))
+		orderReq.TakeProfitOrdPx("-1")
 	}
 
 	orders, err := orderReq.Do(ctx)

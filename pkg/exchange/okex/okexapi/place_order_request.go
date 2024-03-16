@@ -58,11 +58,22 @@ type PlaceOrderRequest struct {
 	// Only applicable to FUTURES/SWAP.
 	positionSide *string `param:"posSide"`
 
+	//Order type
+	//  market: Market order
+	//  limit: Limit order
+	//  post_only: Post-only order
+	//  fok: Fill-or-kill order
+	//  ioc: Immediate-or-cancel order
+	//  optimal_limit_ioc: Market order with immediate-or-cancel order (applicable only to Expiry Futures and Perpetual Futures).
+	//  mmp: Market Maker Protection (only applicable to Option in Portfolio Margin mode)
+	//  mmp_and_post_only: Market Maker Protection and Post-only order(only applicable to Option in Portfolio Margin mode)
 	orderType OrderType `param:"ordType"`
 
+	// Quantity to buy or sell
 	size string `param:"sz"`
 
-	// price
+	// Order price. Only applicable to limit,post_only,fok,ioc,mmp,mmp_and_post_only order.
+	// When placing an option order, one of px/pxUsd/pxVol must be filled in, and only one can be filled in
 	price *string `param:"px"`
 
 	// Take-profit trigger price
@@ -70,7 +81,7 @@ type PlaceOrderRequest struct {
 	// Take-profit order price
 	takeProfitOrdPx *string `param:"tpOrdPx"`
 	// Take-profit trigger price type
-	takeProfitTriggerPxType *string `param:"tpOrdPx"`
+	takeProfitTriggerPxType *string `param:"tpTriggerPxType"`
 
 	// Stop-loss trigger price
 	stopLossTriggerPx *string `param:"slTriggerPx"`
