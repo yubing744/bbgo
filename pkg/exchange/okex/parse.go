@@ -7,9 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/errors"
-	"github.com/valyala/fastjson"
-
 	"github.com/c9s/bbgo/pkg/exchange/okex/okexapi"
 	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/types"
@@ -24,6 +21,7 @@ const (
 	ChannelAccount      Channel = "account"
 	ChannelMarketTrades Channel = "trades"
 	ChannelOrderTrades  Channel = "orders"
+	ChannelPositions    Channel = "positions"
 )
 
 type ActionType string
@@ -78,6 +76,14 @@ func parseWebSocketEvent(in []byte) (interface{}, error) {
 
 		return orderTrade, nil
 
+	case ChannelPositions:
+		var positionUpdateEvents []PositionUpdateEvent
+		err := json.Unmarshal(event.Data, &positionUpdateEvents)
+		if err != nil {
+			return nil, err
+		}
+
+		return positionUpdateEvents, nil
 	default:
 		if strings.HasPrefix(string(event.Arg.Channel), string(ChannelCandlePrefix)) {
 			// TODO: Support kline subscription. The kline requires another URL to subscribe, which is why we cannot
@@ -216,92 +222,6 @@ type BookEntry struct {
 	NumOrders     int
 }
 
-func parseBookEntry(v *fastjson.Value) (*BookEntry, error) {
-	arr, err := v.Array()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(arr) < 4 {
-		return nil, fmt.Errorf("unexpected book entry size: %d", len(arr))
-	}
-
-	price := fixedpoint.Must(fixedpoint.NewFromString(string(arr[0].GetStringBytes())))
-	volume := fixedpoint.Must(fixedpoint.NewFromString(string(arr[1].GetStringBytes())))
-	numLiquidated, err := strconv.Atoi(string(arr[2].GetStringBytes()))
-	if err != nil {
-		return nil, err
-	}
-
-	numOrders, err := strconv.Atoi(string(arr[3].GetStringBytes()))
-	if err != nil {
-		return nil, err
-	}
-
-	return &BookEntry{
-		Price:         price,
-		Volume:        volume,
-		NumLiquidated: numLiquidated,
-		NumOrders:     numOrders,
-	}, nil
-}
-
-func parseBookData(v *fastjson.Value) (*BookEvent, error) {
-	instrumentId := string(v.GetStringBytes("arg", "instId"))
-	data := v.GetArray("data")
-	if len(data) == 0 {
-		return nil, errors.New("empty data payload")
-	}
-
-	// "snapshot" or "update"
-	action := string(v.GetStringBytes("action"))
-
-	//millisecondTimestamp, err := strconv.ParseInt(string(data[0].GetStringBytes("ts")), 10, 64)
-	//if err != nil {
-	//	return nil, errors.Wrap(err, "parseBookData")
-	//}
-
-	checksum := data[0].GetInt("checksum")
-
-	var asks []BookEntry
-	var bids []BookEntry
-
-	for _, v := range data[0].GetArray("asks") {
-		entry, err := parseBookEntry(v)
-		if err != nil {
-			return nil, err
-		}
-		asks = append(asks, *entry)
-	}
-
-	for _, v := range data[0].GetArray("bids") {
-		entry, err := parseBookEntry(v)
-		if err != nil {
-			return nil, err
-		}
-		bids = append(bids, *entry)
-	}
-
-	return &BookEvent{
-		InstrumentID: instrumentId,
-		Symbol:       toGlobalSymbol(instrumentId),
-		Action:       ActionType(action),
-		Data: []struct {
-			Bids                 PriceVolumeOrderSlice      `json:"bids"`
-			Asks                 PriceVolumeOrderSlice      `json:"asks"`
-			MillisecondTimestamp types.MillisecondTimestamp `json:"ts"`
-			Checksum             int                        `json:"checksum"`
-		}{
-			{
-				//Bids:                 bids,
-				//Asks:                 asks,
-				Checksum: checksum,
-				//MillisecondTimestamp: millisecondTimestamp,
-			},
-		},
-	}, nil
-}
-
 type Candle struct {
 	Channel      string
 	InstrumentID string
@@ -343,80 +263,6 @@ func (c *Candle) KLine() types.KLine {
 		StartTime:   types.Time(c.StartTime),
 		EndTime:     types.Time(endTime),
 	}
-}
-
-func parseCandle(channel string, v *fastjson.Value) (*Candle, error) {
-	instrumentID := string(v.GetStringBytes("arg", "instId"))
-	data, err := v.Get("data").Array()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(data) == 0 {
-		return nil, errors.New("candle data is empty")
-	}
-
-	arr, err := data[0].Array()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(arr) < 7 {
-		return nil, fmt.Errorf("unexpected candle data length: %d", len(arr))
-	}
-
-	interval := strings.ToLower(strings.TrimPrefix(channel, "candle"))
-
-	timestamp, err := strconv.ParseInt(string(arr[0].GetStringBytes()), 10, 64)
-	if err != nil {
-		return nil, errors.Wrap(err, "parseCandle")
-	}
-
-	open, err := fixedpoint.NewFromString(string(arr[1].GetStringBytes()))
-	if err != nil {
-		return nil, err
-	}
-
-	high, err := fixedpoint.NewFromString(string(arr[2].GetStringBytes()))
-	if err != nil {
-		return nil, err
-	}
-
-	low, err := fixedpoint.NewFromString(string(arr[3].GetStringBytes()))
-	if err != nil {
-		return nil, err
-	}
-
-	cls, err := fixedpoint.NewFromString(string(arr[4].GetStringBytes()))
-	if err != nil {
-		return nil, err
-	}
-
-	vol, err := fixedpoint.NewFromString(string(arr[5].GetStringBytes()))
-	if err != nil {
-		return nil, err
-	}
-
-	volCurrency, err := fixedpoint.NewFromString(string(arr[6].GetStringBytes()))
-	if err != nil {
-		return nil, err
-	}
-
-	candleTime := time.Unix(0, timestamp*int64(time.Millisecond))
-	return &Candle{
-		Channel:              channel,
-		InstrumentID:         instrumentID,
-		Symbol:               toGlobalSymbol(instrumentID),
-		Interval:             interval,
-		Open:                 open,
-		High:                 high,
-		Low:                  low,
-		Close:                cls,
-		Volume:               vol,
-		VolumeInCurrency:     volCurrency,
-		MillisecondTimestamp: timestamp,
-		StartTime:            candleTime,
-	}, nil
 }
 
 type PriceVolumeOrderSlice []PriceVolumeOrder
@@ -564,58 +410,6 @@ func (o *OrderTradeEvent) toGlobalTrade() (types.Trade, error) {
 	}, nil
 }
 
-func parsePosition(v *fastjson.Value) ([]okexapi.PositionDetails, error) {
-	data := v.Get("data").MarshalTo(nil)
-
-	var positionDetails []okexapi.PositionDetails
-	err := json.Unmarshal(data, &positionDetails)
-	if err != nil {
-		return nil, err
-	}
-
-	return positionDetails, nil
-}
-
-func parseData(v *fastjson.Value) (interface{}, error) {
-	channel := string(v.GetStringBytes("arg", "channel"))
-
-	switch channel {
-	case "books5":
-		data, err := parseBookData(v)
-		data.channel = Channel(channel)
-		return data, err
-	case "books":
-		data, err := parseBookData(v)
-		data.channel = Channel(channel)
-		return data, err
-	case "account":
-		return parseAccount(v.GetStringBytes())
-	case "orders":
-		return parseOrder(v)
-	case "positions":
-		return parsePosition(v)
-	default:
-		if strings.HasPrefix(channel, "candle") {
-			data, err := parseCandle(channel, v)
-			return data, err
-		}
-	}
-
-	return nil, nil
-}
-
-func parseOrder(v *fastjson.Value) ([]okexapi.OrderDetails, error) {
-	data := v.Get("data").MarshalTo(nil)
-
-	var orderDetails []okexapi.OrderDetails
-	err := json.Unmarshal(data, &orderDetails)
-	if err != nil {
-		return nil, err
-	}
-
-	return orderDetails, nil
-}
-
 func toGlobalSideType(side okexapi.SideType) (types.SideType, error) {
 	switch side {
 	case okexapi.SideTypeBuy:
@@ -627,6 +421,83 @@ func toGlobalSideType(side okexapi.SideType) (types.SideType, error) {
 	default:
 		return types.SideType(side), fmt.Errorf("unexpected side: %s", side)
 	}
+}
+
+type PositionUpdateEvent struct {
+	InstrumentType string `json:"instType"`
+	InstrumentID   string `json:"instId"`
+
+	MarginMode string           `json:"mgnMode"`
+	PosId      string           `json:"posId"`
+	PosSide    string           `json:"posSide"`
+	Pos        fixedpoint.Value `json:"pos"`
+	BaseBal    fixedpoint.Value `json:"baseBal"`
+	QuoteBal   fixedpoint.Value `json:"quoteBal"`
+	PosCCY     string           `json:"posCcy"`
+	AvailPos   fixedpoint.Value `json:"availPos"`
+	AvgPx      fixedpoint.Value `json:"avgPx"`
+	Upl        fixedpoint.Value `json:"upl"`
+	UplRatio   fixedpoint.Value `json:"uplRatio"`
+
+	Lever       fixedpoint.Value `json:"lever"`
+	MarkPx      fixedpoint.Value `json:"markPx"`
+	IMR         fixedpoint.Value `json:"imr"`
+	Margin      fixedpoint.Value `json:"margin"`
+	MarginRatio fixedpoint.Value `json:"mgnRatio"`
+	TradeID     string           `json:"tradeId"`
+	CCY         string           `json:"ccy"`
+	Last        fixedpoint.Value `json:"last"`
+
+	LiabCcy string           `json:"liabCcy"`
+	Liab    fixedpoint.Value `json:"liab"`
+
+	PushTime     types.MillisecondTimestamp `json:"pTime"`
+	UpdateTime   types.MillisecondTimestamp `json:"uTime"`
+	CreationTime types.MillisecondTimestamp `json:"cTime"`
+}
+
+func (positionDetail *PositionUpdateEvent) toGlobalPosition() (types.PositionInfo, error) {
+	tradeID, err := strconv.ParseInt(positionDetail.TradeID, 10, 64)
+	if err != nil {
+		return types.PositionInfo{}, fmt.Errorf("error parsing tradeId value: %s", positionDetail.TradeID)
+	}
+
+	sections := strings.Split(positionDetail.InstrumentID, "-")
+	baseCurrency := sections[0]
+	quoteCurrency := sections[1]
+
+	base := fixedpoint.Value(0)
+	quote := fixedpoint.Value(0)
+
+	if positionDetail.InstrumentType == "MARGIN" {
+		if positionDetail.PosCCY == baseCurrency {
+			base = positionDetail.Pos
+			quote = positionDetail.Liab
+		} else {
+			base = positionDetail.Liab
+			quote = positionDetail.Pos
+		}
+	} else if positionDetail.InstrumentType == "SWAP" ||
+		positionDetail.InstrumentType == "FUTURES" ||
+		positionDetail.InstrumentType == "OPTION" {
+		// TODO
+		base = positionDetail.Pos
+		quote = fixedpoint.Value(0)
+	}
+
+	return types.PositionInfo{
+		Symbol:        toGlobalSymbol(positionDetail.InstrumentID),
+		BaseCurrency:  baseCurrency,
+		QuoteCurrency: quoteCurrency,
+
+		Base:        base,
+		Quote:       quote,
+		AverageCost: positionDetail.AvgPx,
+		TradeID:     uint64(tradeID),
+
+		OpenedAt:  positionDetail.CreationTime.Time(),
+		ChangedAt: positionDetail.UpdateTime.Time(),
+	}, nil
 }
 
 type MarketTradeEvent struct {

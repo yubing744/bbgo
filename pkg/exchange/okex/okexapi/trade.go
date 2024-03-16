@@ -312,36 +312,3 @@ func (r *GetTransactionDetailsRequest) Do(ctx context.Context) ([]OrderDetails, 
 
 	return data, nil
 }
-
-type PositionDetails struct {
-	InstrumentType string `json:"instType"`
-	InstrumentID   string `json:"instId"`
-
-	MarginMode string           `json:"mgnMode"`
-	PosId      string           `json:"posId"`
-	PosSide    string           `json:"posSide"`
-	Pos        fixedpoint.Value `json:"pos"`
-	BaseBal    fixedpoint.Value `json:"baseBal"`
-	QuoteBal   fixedpoint.Value `json:"quoteBal"`
-	PosCCY     string           `json:"posCcy"`
-	AvailPos   fixedpoint.Value `json:"availPos"`
-	AvgPx      fixedpoint.Value `json:"avgPx"`
-	Upl        fixedpoint.Value `json:"upl"`
-	UplRatio   fixedpoint.Value `json:"uplRatio"`
-
-	Lever       fixedpoint.Value `json:"lever"`
-	MarkPx      fixedpoint.Value `json:"markPx"`
-	IMR         fixedpoint.Value `json:"imr"`
-	Margin      fixedpoint.Value `json:"margin"`
-	MarginRatio fixedpoint.Value `json:"mgnRatio"`
-	TradeID     string           `json:"tradeId"`
-	CCY         string           `json:"ccy"`
-	Last        fixedpoint.Value `json:"last"`
-
-	LiabCcy string           `json:"liabCcy"`
-	Liab    fixedpoint.Value `json:"liab"`
-
-	PushTime     types.MillisecondTimestamp `json:"pTime"`
-	UpdateTime   types.MillisecondTimestamp `json:"uTime"`
-	CreationTime types.MillisecondTimestamp `json:"cTime"`
-}

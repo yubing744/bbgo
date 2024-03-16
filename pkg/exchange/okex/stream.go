@@ -48,7 +48,7 @@ type Stream struct {
 	accountEventCallbacks         []func(account okexapi.Account)
 	orderTradesEventCallbacks     []func(orderTrades []OrderTradeEvent)
 	marketTradeEventCallbacks     []func(tradeDetail []MarketTradeEvent)
-	positionDetailsEventCallbacks []func(positionDetails []okexapi.PositionDetails)
+	positionDetailsEventCallbacks []func(positionDetails []PositionUpdateEvent)
 }
 
 func NewStream(client *okexapi.RestClient, balanceProvider types.ExchangeAccountService) *Stream {
@@ -197,7 +197,6 @@ func (s *Stream) subscribePrivateChannels(next func()) func() {
 			{Channel: ChannelAccount},
 			{Channel: "orders", InstrumentType: string(okexapi.InstrumentTypeSpot)},
 			{Channel: "orders", InstrumentType: string(okexapi.InstrumentTypeMargin)},
-			{Channel: "positions", InstrumentType: string(okexapi.InstrumentTypeSpot)},
 			{Channel: "positions", InstrumentType: string(okexapi.InstrumentTypeMargin)},
 		}
 
@@ -256,12 +255,12 @@ func (s *Stream) handleOrderDetailsEvent(orderTrades []OrderTradeEvent) {
 	}
 }
 
-func (s *Stream) handlePositionDetailsEvent(positionDetails []okexapi.PositionDetails) {
-	positions, err := toGlobalPositions(positionDetails)
-	if err != nil {
-		log.WithError(err).Errorf("error converting position details into positions")
-	} else {
-		for _, position := range positions {
+func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEvent) {
+	for _, positionDetail := range positionDetails {
+		position, err := positionDetail.toGlobalPosition()
+		if err != nil {
+			log.WithError(err).Errorf("error converting position details into positions")
+		} else {
 			s.EmitPositionUpdate(position)
 		}
 	}
@@ -333,7 +332,7 @@ func (s *Stream) dispatchEvent(e interface{}) {
 	case []MarketTradeEvent:
 		s.EmitMarketTradeEvent(et)
 
-	case []okexapi.PositionDetails:
+	case []PositionUpdateEvent:
 		s.EmitPositionDetailsEvent(et)
 	}
 }

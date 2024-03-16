@@ -8,7 +8,6 @@ import (
 	"github.com/c9s/bbgo/pkg/exchange/okex/okexapi"
 	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/types"
-	"github.com/pkg/errors"
 )
 
 func toGlobalSymbol(symbol string) string {
@@ -351,53 +350,4 @@ func toGlobalOrder(okexOrder *okexapi.OrderDetails) (*types.Order, error) {
 		IsMargin:         isMargin,
 		IsIsolated:       false,
 	}, nil
-}
-
-func toGlobalPositions(positionDetails []okexapi.PositionDetails) ([]types.PositionInfo, error) {
-	var positions []types.PositionInfo
-	for _, positionDetail := range positionDetails {
-		tradeID, err := strconv.ParseInt(positionDetail.TradeID, 10, 64)
-		if err != nil {
-			return positions, errors.Wrapf(err, "error parsing tradeId value: %s", positionDetail.TradeID)
-		}
-
-		sections := strings.Split(positionDetail.InstrumentID, "-")
-		baseCurrency := sections[0]
-		quoteCurrency := sections[1]
-
-		base := fixedpoint.Value(0)
-		quote := fixedpoint.Value(0)
-
-		if positionDetail.InstrumentType == "MARGIN" {
-			if positionDetail.PosCCY == baseCurrency {
-				base = positionDetail.Pos
-				quote = positionDetail.Liab
-			} else {
-				base = positionDetail.Liab
-				quote = positionDetail.Pos
-			}
-		} else if positionDetail.InstrumentType == "SWAP" ||
-			positionDetail.InstrumentType == "FUTURES" ||
-			positionDetail.InstrumentType == "OPTION" {
-			// TODO
-			base = positionDetail.Pos
-			quote = fixedpoint.Value(0)
-		}
-
-		positions = append(positions, types.PositionInfo{
-			Symbol:        toGlobalSymbol(positionDetail.InstrumentID),
-			BaseCurrency:  baseCurrency,
-			QuoteCurrency: quoteCurrency,
-
-			Base:        base,
-			Quote:       quote,
-			AverageCost: positionDetail.AvgPx,
-			TradeID:     uint64(tradeID),
-
-			OpenedAt:  positionDetail.CreationTime.Time(),
-			ChangedAt: positionDetail.UpdateTime.Time(),
-		})
-	}
-
-	return positions, nil
 }

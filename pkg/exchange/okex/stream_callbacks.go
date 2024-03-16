@@ -56,11 +56,14 @@ func (s *Stream) EmitMarketTradeEvent(tradeDetail []MarketTradeEvent) {
 	}
 }
 
-func (s *Stream) OnPositionDetailsEvent(cb func(positionDetails []okexapi.PositionDetails)) {
+func (s *Stream) OnPositionDetailsEvent(cb func(positionDetails []PositionUpdateEvent)) {
 	s.positionDetailsEventCallbacks = append(s.positionDetailsEventCallbacks, cb)
 }
 
-func (s *Stream) EmitPositionDetailsEvent(positionDetails []okexapi.PositionDetails) {
+func (s *Stream) EmitPositionDetailsEvent(positionDetails []PositionUpdateEvent) {
+	log.WithField("positionDetails", positionDetails).
+		Debug("EmitPositionDetailsEvent")
+
 	for _, cb := range s.positionDetailsEventCallbacks {
 		cb(positionDetails)
 	}
@@ -77,5 +80,5 @@ type StreamEventHub interface {
 
 	OnMarketTradeEvent(cb func(tradeDetail []MarketTradeEvent))
 
-	OnPositionDetailsEvent(cb func(positionDetails []okexapi.PositionDetails)) 
+	OnPositionDetailsEvent(cb func(positionDetails []PositionUpdateEvent)) 
 }
