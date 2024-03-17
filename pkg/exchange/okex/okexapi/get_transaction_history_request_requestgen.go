@@ -71,7 +71,7 @@ func (g *GetTransactionHistoryRequest) GetQueryParameters() (url.Values, error) 
 
 	// TEMPLATE check-valid-values
 	switch instrumentType {
-	case InstrumentTypeSpot, InstrumentTypeSwap, InstrumentTypeFutures, InstrumentTypeOption, InstrumentTypeMARGIN:
+	case InstrumentTypeSpot, InstrumentTypeMargin, InstrumentTypeSwap, InstrumentTypeFutures, InstrumentTypeOption, InstrumentTypeAny:
 		params["instType"] = instrumentType
 
 	default:
@@ -272,7 +272,6 @@ func (g *GetTransactionHistoryRequest) Do(ctx context.Context) ([]Trade, error) 
 		return nil, err
 	}
 
-	fmt.Println(">>", req.URL)
 	response, err := g.client.SendRequest(req)
 	if err != nil {
 		return nil, err
@@ -292,7 +291,6 @@ func (g *GetTransactionHistoryRequest) Do(ctx context.Context) ([]Trade, error) 
 			return nil, err
 		}
 	}
-
 	var data []Trade
 	if err := json.Unmarshal(apiResponse.Data, &data); err != nil {
 		return nil, err

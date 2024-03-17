@@ -490,6 +490,8 @@ func (session *ExchangeSession) initSymbol(ctx context.Context, environ *Environ
 
 	if !(environ.environmentConfig != nil && environ.environmentConfig.DisableHistoryKLinePreload) {
 		for interval := range klineSubscriptions {
+			log.Infof("kline subscription data for %s %s", symbol, interval)
+
 			// avoid querying the last unclosed kline
 			endTime := environ.startTime
 			var i int64
@@ -501,6 +503,14 @@ func (session *ExchangeSession) initSymbol(ctx context.Context, environ *Environ
 					EndTime: &e,
 					Limit:   1000, // indicators need at least 100
 				})
+
+				log.
+					WithError(err).
+					WithField("kline_size", len(kLines)).
+					WithField("symbol", symbol).
+					WithField("interval", interval).
+					Info("session.Exchange.QueryKLines")
+
 				if err != nil {
 					return err
 				}

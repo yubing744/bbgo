@@ -82,6 +82,10 @@ func (c *TradeCollector) BindStream(stream types.Stream) {
 	stream.OnTradeUpdate(func(trade types.Trade) {
 		c.processTrade(trade)
 	})
+
+	stream.OnPositionUpdate(func(pos types.PositionInfo) {
+		c.updatePosition(pos)
+	})
 }
 
 // Emit triggers the trade processing (position update)
@@ -146,6 +150,13 @@ func (c *TradeCollector) Process() bool {
 			return true
 		}
 
+		if trade.ID < c.position.TradeID {
+			logrus.WithField("trade", trade).
+				WithField("position_trade_id", c.position.TradeID).
+				Debug("skip process trade for trade_id not latest")
+			return false
+		}
+
 		// if it's the trade we're looking for, add it to the list and mark it as done
 		if c.orderStore.Exists(trade.OrderID) {
 			trades = append(trades, trade)
@@ -195,6 +206,13 @@ func (c *TradeCollector) processTrade(trade types.Trade) bool {
 	// if it's already done, remove the trade from the trade store
 	if _, done := c.doneTrades[key]; done {
 		c.mu.Unlock()
+		return false
+	}
+
+	if trade.ID < c.position.TradeID {
+		logrus.WithField("trade", trade).
+			WithField("position_trade_id", c.position.TradeID).
+			Debug("skip process trade for trade_id not latest")
 		return false
 	}
 
@@ -252,4 +270,16 @@ func (c *TradeCollector) Run(ctx context.Context) {
 			c.processTrade(trade)
 		}
 	}
+}
+
+func (c *TradeCollector) updatePosition(pos types.PositionInfo) bool {
+	if c.position.Symbol != pos.Symbol {
+		return false
+	}
+
+	if c.position.Update(pos) {
+		c.EmitPositionUpdate(c.position)
+	}
+
+	return true
 }

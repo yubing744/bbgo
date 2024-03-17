@@ -21,6 +21,7 @@ const (
 	ChannelAccount      Channel = "account"
 	ChannelMarketTrades Channel = "trades"
 	ChannelOrderTrades  Channel = "orders"
+	ChannelPositions    Channel = "positions"
 )
 
 type ActionType string
@@ -75,6 +76,14 @@ func parseWebSocketEvent(in []byte) (interface{}, error) {
 
 		return orderTrade, nil
 
+	case ChannelPositions:
+		var positionUpdateEvents []PositionUpdateEvent
+		err := json.Unmarshal(event.Data, &positionUpdateEvents)
+		if err != nil {
+			return nil, err
+		}
+
+		return positionUpdateEvents, nil
 	default:
 		if strings.HasPrefix(string(event.Arg.Channel), string(ChannelCandlePrefix)) {
 			// TODO: Support kline subscription. The kline requires another URL to subscribe, which is why we cannot
@@ -204,6 +213,56 @@ type PriceVolumeOrder struct {
 	NumLiquidated int
 	// NumOrders is the number of orders at the price.
 	NumOrders int
+}
+
+type BookEntry struct {
+	Price         fixedpoint.Value
+	Volume        fixedpoint.Value
+	NumLiquidated int
+	NumOrders     int
+}
+
+type Candle struct {
+	Channel      string
+	InstrumentID string
+	Symbol       string
+	Interval     string
+	Open         fixedpoint.Value
+	High         fixedpoint.Value
+	Low          fixedpoint.Value
+	Close        fixedpoint.Value
+
+	// Trading volume, with a unit of contact.
+	// If it is a derivatives contract, the value is the number of contracts.
+	// If it is SPOT/MARGIN, the value is the amount of trading currency.
+	Volume fixedpoint.Value
+
+	// Trading volume, with a unit of currency.
+	// If it is a derivatives contract, the value is the number of settlement currency.
+	// If it is SPOT/MARGIN, the value is the number of quote currency.
+	VolumeInCurrency fixedpoint.Value
+
+	MillisecondTimestamp int64
+
+	StartTime time.Time
+}
+
+func (c *Candle) KLine() types.KLine {
+	interval := types.Interval(c.Interval)
+	endTime := c.StartTime.Add(interval.Duration() - 1*time.Millisecond)
+	return types.KLine{
+		Exchange:    types.ExchangeOKEx,
+		Interval:    interval,
+		Symbol:      c.Symbol,
+		Open:        c.Open,
+		High:        c.High,
+		Low:         c.Low,
+		Close:       c.Close,
+		Volume:      c.Volume,
+		QuoteVolume: c.VolumeInCurrency,
+		StartTime:   types.Time(c.StartTime),
+		EndTime:     types.Time(endTime),
+	}
 }
 
 type PriceVolumeOrderSlice []PriceVolumeOrder
@@ -362,6 +421,83 @@ func toGlobalSideType(side okexapi.SideType) (types.SideType, error) {
 	default:
 		return types.SideType(side), fmt.Errorf("unexpected side: %s", side)
 	}
+}
+
+type PositionUpdateEvent struct {
+	InstrumentType string `json:"instType"`
+	InstrumentID   string `json:"instId"`
+
+	MarginMode string           `json:"mgnMode"`
+	PosId      string           `json:"posId"`
+	PosSide    string           `json:"posSide"`
+	Pos        fixedpoint.Value `json:"pos"`
+	BaseBal    fixedpoint.Value `json:"baseBal"`
+	QuoteBal   fixedpoint.Value `json:"quoteBal"`
+	PosCCY     string           `json:"posCcy"`
+	AvailPos   fixedpoint.Value `json:"availPos"`
+	AvgPx      fixedpoint.Value `json:"avgPx"`
+	Upl        fixedpoint.Value `json:"upl"`
+	UplRatio   fixedpoint.Value `json:"uplRatio"`
+
+	Lever       fixedpoint.Value `json:"lever"`
+	MarkPx      fixedpoint.Value `json:"markPx"`
+	IMR         fixedpoint.Value `json:"imr"`
+	Margin      fixedpoint.Value `json:"margin"`
+	MarginRatio fixedpoint.Value `json:"mgnRatio"`
+	TradeID     string           `json:"tradeId"`
+	CCY         string           `json:"ccy"`
+	Last        fixedpoint.Value `json:"last"`
+
+	LiabCcy string           `json:"liabCcy"`
+	Liab    fixedpoint.Value `json:"liab"`
+
+	PushTime     types.MillisecondTimestamp `json:"pTime"`
+	UpdateTime   types.MillisecondTimestamp `json:"uTime"`
+	CreationTime types.MillisecondTimestamp `json:"cTime"`
+}
+
+func (positionDetail *PositionUpdateEvent) toGlobalPosition() (types.PositionInfo, error) {
+	tradeID, err := strconv.ParseInt(positionDetail.TradeID, 10, 64)
+	if err != nil {
+		return types.PositionInfo{}, fmt.Errorf("error parsing tradeId value: %s", positionDetail.TradeID)
+	}
+
+	sections := strings.Split(positionDetail.InstrumentID, "-")
+	baseCurrency := sections[0]
+	quoteCurrency := sections[1]
+
+	base := fixedpoint.Value(0)
+	quote := fixedpoint.Value(0)
+
+	if positionDetail.InstrumentType == "MARGIN" {
+		if positionDetail.PosCCY == baseCurrency {
+			base = positionDetail.Pos
+			quote = positionDetail.Liab
+		} else {
+			base = positionDetail.Liab
+			quote = positionDetail.Pos
+		}
+	} else if positionDetail.InstrumentType == "SWAP" ||
+		positionDetail.InstrumentType == "FUTURES" ||
+		positionDetail.InstrumentType == "OPTION" {
+		// TODO
+		base = positionDetail.Pos
+		quote = fixedpoint.Value(0)
+	}
+
+	return types.PositionInfo{
+		Symbol:        toGlobalSymbol(positionDetail.InstrumentID),
+		BaseCurrency:  baseCurrency,
+		QuoteCurrency: quoteCurrency,
+
+		Base:        base,
+		Quote:       quote,
+		AverageCost: positionDetail.AvgPx,
+		TradeID:     uint64(tradeID),
+
+		OpenedAt:  positionDetail.CreationTime.Time(),
+		ChangedAt: positionDetail.UpdateTime.Time(),
+	}, nil
 }
 
 type MarketTradeEvent struct {

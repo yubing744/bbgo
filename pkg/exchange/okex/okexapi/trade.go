@@ -35,9 +35,10 @@ func (c *RestClient) NewGetTransactionDetailsRequest() *GetTransactionDetailsReq
 	}
 }
 
-func (r *PlaceOrderRequest) Parameters() map[string]interface{} {
-	params, _ := r.GetParameters()
-	return params
+func (c *RestClient) NewClosePositionOrderRequest() *ClosePositionRequest {
+	return &ClosePositionRequest{
+		client: c,
+	}
 }
 
 type BatchCancelOrderRequest struct {
@@ -99,7 +100,7 @@ func (r *BatchPlaceOrderRequest) Do(ctx context.Context) ([]OrderResponse, error
 	var parameterList []map[string]interface{}
 
 	for _, req := range r.reqs {
-		params := req.Parameters()
+		params, _ := req.GetParameters()
 		parameterList = append(parameterList, params)
 	}
 
@@ -136,6 +137,8 @@ type OrderDetails struct {
 	ClientOrderID string    `json:"clOrdId"`
 	OrderType     OrderType `json:"ordType"`
 	Side          SideType  `json:"side"`
+	PostionSide   string    `json:"posSide"`
+	TradeMode     string    `json:"tdMode"`
 
 	// Accumulated fill quantity
 	FilledQuantity fixedpoint.Value `json:"accFillSz"`

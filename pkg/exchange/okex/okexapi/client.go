@@ -16,7 +16,12 @@ import (
 	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/requestgen"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
+
+var log = logrus.WithFields(logrus.Fields{
+	"exchange": "okex",
+})
 
 const defaultHTTPTimeout = time.Second * 15
 const RestBaseURL = "https://www.okex.com/"
@@ -45,10 +50,11 @@ type InstrumentType string
 
 const (
 	InstrumentTypeSpot    InstrumentType = "SPOT"
+	InstrumentTypeMargin  InstrumentType = "MARGIN"
 	InstrumentTypeSwap    InstrumentType = "SWAP"
 	InstrumentTypeFutures InstrumentType = "FUTURES"
 	InstrumentTypeOption  InstrumentType = "OPTION"
-	InstrumentTypeMARGIN  InstrumentType = "MARGIN"
+	InstrumentTypeAny     InstrumentType = "ANY"
 )
 
 type OrderState string

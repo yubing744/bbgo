@@ -39,6 +39,10 @@ type PlaceOrderRequest struct {
 	// non-margin mode cash
 	tradeMode TradeMode `param:"tdMode" validValues:"cross,isolated,cash"`
 
+	// Margin currency
+	// Only applicable to cross MARGIN orders in Single-currency margin
+	marginCurrency *string `param:"ccy"`
+
 	// A combination of case-sensitive alphanumerics, all numbers, or all letters of up to 32 characters.
 	clientOrderID *string `param:"clOrdId"`
 
@@ -48,12 +52,43 @@ type PlaceOrderRequest struct {
 	// "buy" or "sell"
 	side SideType `param:"side" validValues:"buy,sell"`
 
+	// Position side
+	// The default is net in the net mode
+	// It is required in the long/short mode, and can only be long or short.
+	// Only applicable to FUTURES/SWAP.
+	positionSide *string `param:"posSide"`
+
+	//Order type
+	//  market: Market order
+	//  limit: Limit order
+	//  post_only: Post-only order
+	//  fok: Fill-or-kill order
+	//  ioc: Immediate-or-cancel order
+	//  optimal_limit_ioc: Market order with immediate-or-cancel order (applicable only to Expiry Futures and Perpetual Futures).
+	//  mmp: Market Maker Protection (only applicable to Option in Portfolio Margin mode)
+	//  mmp_and_post_only: Market Maker Protection and Post-only order(only applicable to Option in Portfolio Margin mode)
 	orderType OrderType `param:"ordType"`
 
+	// Quantity to buy or sell
 	size string `param:"sz"`
 
-	// price
+	// Order price. Only applicable to limit,post_only,fok,ioc,mmp,mmp_and_post_only order.
+	// When placing an option order, one of px/pxUsd/pxVol must be filled in, and only one can be filled in
 	price *string `param:"px"`
+
+	// Take-profit trigger price
+	takeProfitTriggerPx *string `param:"tpTriggerPx"`
+	// Take-profit order price
+	takeProfitOrdPx *string `param:"tpOrdPx"`
+	// Take-profit trigger price type
+	takeProfitTriggerPxType *string `param:"tpTriggerPxType"`
+
+	// Stop-loss trigger price
+	stopLossTriggerPx *string `param:"slTriggerPx"`
+	// Stop-loss order price
+	stopLossOrdPx *string `param:"slOrdPx"`
+	// Stop-loss trigger price type
+	stopLossTriggerPxType *string `param:"slTriggerPxType"`
 
 	// Whether the target currency uses the quote or base currency.
 	// base_ccy: Base currency ,quote_ccy: Quote currency

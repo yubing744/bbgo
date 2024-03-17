@@ -43,11 +43,12 @@ type Stream struct {
 	balanceProvider types.ExchangeAccountService
 
 	// public callbacks
-	kLineEventCallbacks       []func(candle KLineEvent)
-	bookEventCallbacks        []func(book BookEvent)
-	accountEventCallbacks     []func(account okexapi.Account)
-	orderTradesEventCallbacks []func(orderTrades []OrderTradeEvent)
-	marketTradeEventCallbacks []func(tradeDetail []MarketTradeEvent)
+	kLineEventCallbacks           []func(candle KLineEvent)
+	bookEventCallbacks            []func(book BookEvent)
+	accountEventCallbacks         []func(account okexapi.Account)
+	orderTradesEventCallbacks     []func(orderTrades []OrderTradeEvent)
+	marketTradeEventCallbacks     []func(tradeDetail []MarketTradeEvent)
+	positionDetailsEventCallbacks []func(positionDetails []PositionUpdateEvent)
 }
 
 func NewStream(client *okexapi.RestClient, balanceProvider types.ExchangeAccountService) *Stream {
@@ -67,6 +68,7 @@ func NewStream(client *okexapi.RestClient, balanceProvider types.ExchangeAccount
 	stream.OnAccountEvent(stream.handleAccountEvent)
 	stream.OnMarketTradeEvent(stream.handleMarketTradeEvent)
 	stream.OnOrderTradesEvent(stream.handleOrderDetailsEvent)
+	stream.OnPositionDetailsEvent(stream.handlePositionDetailsEvent)
 	stream.OnConnect(stream.handleConnect)
 	stream.OnAuth(stream.subscribePrivateChannels(stream.emitBalanceSnapshot))
 	stream.kLineStream.OnKLineClosed(stream.EmitKLineClosed)
@@ -194,6 +196,8 @@ func (s *Stream) subscribePrivateChannels(next func()) func() {
 		var subs = []WebsocketSubscription{
 			{Channel: ChannelAccount},
 			{Channel: "orders", InstrumentType: string(okexapi.InstrumentTypeSpot)},
+			{Channel: "orders", InstrumentType: string(okexapi.InstrumentTypeMargin)},
+			{Channel: "positions", InstrumentType: string(okexapi.InstrumentTypeMargin)},
 		}
 
 		log.Infof("subscribing private channels: %+v", subs)
@@ -247,6 +251,17 @@ func (s *Stream) handleOrderDetailsEvent(orderTrades []OrderTradeEvent) {
 			}
 		} else {
 			s.EmitOrderUpdate(*order)
+		}
+	}
+}
+
+func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEvent) {
+	for _, positionDetail := range positionDetails {
+		position, err := positionDetail.toGlobalPosition()
+		if err != nil {
+			log.WithError(err).Errorf("error converting position details into positions")
+		} else {
+			s.EmitPositionUpdate(position)
 		}
 	}
 }
@@ -317,5 +332,7 @@ func (s *Stream) dispatchEvent(e interface{}) {
 	case []MarketTradeEvent:
 		s.EmitMarketTradeEvent(et)
 
+	case []PositionUpdateEvent:
+		s.EmitPositionDetailsEvent(et)
 	}
 }

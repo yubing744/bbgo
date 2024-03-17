@@ -64,6 +64,8 @@ var log = logrus.WithFields(logrus.Fields{
 var ErrSymbolRequired = errors.New("symbol is a required parameter")
 
 type Exchange struct {
+	types.MarginSettings
+
 	key, secret, passphrase string
 
 	client *okexapi.RestClient
@@ -214,8 +216,17 @@ func (e *Exchange) QueryAccountBalances(ctx context.Context) (types.BalanceMap, 
 }
 
 func (e *Exchange) SubmitOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
+	if e.IsMargin {
+		return e.submitMarginOrder(ctx, order)
+	} else {
+		return e.submitSpotOrder(ctx, order)
+	}
+}
+
+func (e *Exchange) submitSpotOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
 	orderReq := e.client.NewPlaceOrderRequest()
 
+	orderReq.TradeMode("cash")
 	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
 	orderReq.Side(toLocalSideType(order.Side))
 	orderReq.Size(order.Market.FormatQuantity(order.Quantity))
@@ -312,6 +323,127 @@ func (e *Exchange) SubmitOrder(ctx context.Context, order types.SubmitOrder) (*t
 	*/
 }
 
+func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
+	if order.ClosePosition {
+		return e.submitClosePositionOrder(ctx, order)
+	}
+
+	orderReq := e.client.NewPlaceOrderRequest()
+
+	orderType, err := toLocalOrderType(order.Type)
+	if err != nil {
+		return nil, err
+	}
+
+	// Margin mode cross isolated
+	if e.IsIsolatedMargin {
+		orderReq.TradeMode(okexapi.TradeModeIsolated)
+	} else {
+		orderReq.TradeMode(okexapi.TradeModeCross)
+	}
+
+	orderReq.MarginCurrency(order.Market.QuoteCurrency)
+	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
+	orderReq.Side(toLocalSideType(order.Side))
+
+	if order.Market.Symbol != "" {
+		orderReq.Size(order.Market.FormatQuantity(order.Quantity))
+	} else {
+		// TODO report error
+		orderReq.Size(order.Quantity.FormatString(8))
+	}
+
+	// set price field for limit orders
+	switch order.Type {
+	case types.OrderTypeStopLimit, types.OrderTypeLimit:
+		if order.Market.Symbol != "" {
+			orderReq.Price(order.Market.FormatPrice(order.Price))
+		} else {
+			// TODO report error
+			orderReq.Price(order.Price.FormatString(8))
+		}
+	}
+
+	switch order.TimeInForce {
+	case "FOK":
+		orderReq.OrderType(okexapi.OrderTypeFOK)
+	case "IOC":
+		orderReq.OrderType(okexapi.OrderTypeIOC)
+	default:
+		orderReq.OrderType(orderType)
+	}
+
+	// Set stop loss trigger price
+	if order.StopPrice.Compare(fixedpoint.Zero) > 0 {
+		orderReq.StopLossTriggerPxType("last")
+		orderReq.StopLossTriggerPx(order.Market.FormatPrice(order.StopPrice))
+		orderReq.StopLossOrdPx("-1")
+	}
+
+	// Set take profit trigger price
+	if order.TakePrice.Compare(fixedpoint.Zero) > 0 {
+		orderReq.TakeProfitTriggerPxType("last")
+		orderReq.TakeProfitTriggerPx(order.Market.FormatPrice(order.TakePrice))
+		orderReq.TakeProfitOrdPx("-1")
+	}
+
+	orders, err := orderReq.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(orders) != 1 {
+		return nil, fmt.Errorf("unexpected length of order response: %v", orders)
+	}
+
+	orderRes, err := e.QueryOrder(ctx, types.OrderQuery{
+		Symbol:        order.Symbol,
+		OrderID:       orders[0].OrderID,
+		ClientOrderID: orders[0].ClientOrderID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query order by id: %s, clientOrderId: %s, err: %w", orders[0].OrderID, orders[0].ClientOrderID, err)
+	}
+
+	return orderRes, nil
+}
+
+func (e *Exchange) submitClosePositionOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
+	orderReq := e.client.NewClosePositionOrderRequest()
+
+	orderReq.InstrumentID(toLocalSymbol(order.Symbol))
+
+	orderReq.MarginMode("cross")
+	orderReq.Ccy(order.Market.QuoteCurrency)
+
+	if e.IsIsolatedMargin {
+		orderReq.MarginMode("isolated")
+	}
+
+	orderReq.Tag(order.Tag)
+
+	orderHead, err := orderReq.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	log.WithField("orderHead", orderHead).
+		Debug("order req result")
+
+	return &types.Order{
+		SubmitOrder:      order,
+		Exchange:         types.ExchangeOKEx,
+		OrderID:          uint64(0),
+		Status:           types.OrderStatusNew,
+		ExecutedQuantity: fixedpoint.Zero,
+		IsWorking:        true,
+		CreationTime:     types.Time(time.Now()),
+		UpdateTime:       types.Time(time.Now()),
+		IsMargin:         false,
+		IsIsolated:       false,
+	}, nil
+}
+
 // QueryOpenOrders retrieves the pending orders. The data returned is ordered by createdTime, and we utilized the
 // `After` parameter to acquire all orders.
 func (e *Exchange) QueryOpenOrders(ctx context.Context, symbol string) (orders []types.Order, err error) {
@@ -394,6 +526,11 @@ func (e *Exchange) NewStream() types.Stream {
 func (e *Exchange) QueryKLines(
 	ctx context.Context, symbol string, interval types.Interval, options types.KLineQueryOptions,
 ) ([]types.KLine, error) {
+	if options.StartTime != nil && options.EndTime != nil {
+		log.Debug("start time is not nil, query history klines")
+		return e.queryHistoryKLines(ctx, symbol, interval, options)
+	}
+
 	if err := queryKLineLimiter.Wait(ctx); err != nil {
 		return nil, fmt.Errorf("query k line rate limiter wait error: %w", err)
 	}
@@ -424,8 +561,64 @@ func (e *Exchange) QueryKLines(
 		klines = append(klines, kLineToGlobal(candle, interval, symbol))
 	}
 
-	return klines, nil
+	reverseklines(klines)
 
+	return klines, nil
+}
+
+func (e *Exchange) queryHistoryKLines(ctx context.Context, symbol string, interval types.Interval, options types.KLineQueryOptions) ([]types.KLine, error) {
+	if err := queryKLineLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
+	intervalParam, err := toLocalInterval(interval)
+	if err != nil {
+		return nil, err
+	}
+
+	req := e.client.NewHistoryCandlesticksRequest(toLocalSymbol(symbol))
+	req.Bar(intervalParam)
+
+	if options.StartTime != nil {
+		req.Before(options.StartTime.Unix())
+	}
+
+	if options.EndTime != nil {
+		req.After(options.EndTime.Unix())
+	}
+
+	candles, err := req.Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var klines []types.KLine
+	for _, candle := range candles {
+		klines = append(klines, types.KLine{
+			Exchange:    types.ExchangeOKEx,
+			Symbol:      symbol,
+			Interval:    interval,
+			Open:        candle.Open,
+			High:        candle.High,
+			Low:         candle.Low,
+			Close:       candle.Close,
+			Closed:      true,
+			Volume:      candle.Volume,
+			QuoteVolume: candle.VolumeInCurrency,
+			StartTime:   types.Time(candle.Time),
+			EndTime:     types.Time(candle.Time.Add(interval.Duration() - time.Millisecond)),
+		})
+	}
+
+	reverseklines(klines)
+
+	return klines, nil
+}
+
+func reverseklines(s []types.KLine) {
+	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
+		s[i], s[j] = s[j], s[i]
+	}
 }
 
 func (e *Exchange) QueryOrder(ctx context.Context, q types.OrderQuery) (*types.Order, error) {

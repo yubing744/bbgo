@@ -201,6 +201,7 @@ func (e *GeneralOrderExecutor) Bind() {
 		})
 
 		e.tradeCollector.OnPositionUpdate(func(position *types.Position) {
+			log.Debugf("position changed: %s", position)
 			Notify(position)
 		})
 	}
@@ -530,7 +531,7 @@ func (e *GeneralOrderExecutor) ClosePosition(ctx context.Context, percentage fix
 	tagStr := strings.Join(tags, ",")
 	submitOrder.Tag = tagStr
 
-	Notify("Closing %s position %s with tags: %s", e.symbol, percentage.Percentage(), tagStr)
+	Notify("Closing %s position %s with order: %+v", e.symbol, percentage.Percentage(), submitOrder.String())
 
 	createdOrders, err := e.SubmitOrders(ctx, *submitOrder)
 	if err != nil {

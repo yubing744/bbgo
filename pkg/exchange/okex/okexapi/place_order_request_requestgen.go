@@ -11,53 +11,93 @@ import (
 	"regexp"
 )
 
-func (r *PlaceOrderRequest) InstrumentID(instrumentID string) *PlaceOrderRequest {
-	r.instrumentID = instrumentID
-	return r
+func (p *PlaceOrderRequest) InstrumentID(instrumentID string) *PlaceOrderRequest {
+	p.instrumentID = instrumentID
+	return p
 }
 
-func (r *PlaceOrderRequest) TradeMode(tradeMode TradeMode) *PlaceOrderRequest {
-	r.tradeMode = tradeMode
-	return r
+func (p *PlaceOrderRequest) TradeMode(tradeMode TradeMode) *PlaceOrderRequest {
+	p.tradeMode = tradeMode
+	return p
 }
 
-func (r *PlaceOrderRequest) ClientOrderID(clientOrderID string) *PlaceOrderRequest {
-	r.clientOrderID = &clientOrderID
-	return r
+func (p *PlaceOrderRequest) MarginCurrency(marginCurrency string) *PlaceOrderRequest {
+	p.marginCurrency = &marginCurrency
+	return p
 }
 
-func (r *PlaceOrderRequest) Tag(tag string) *PlaceOrderRequest {
-	r.tag = &tag
-	return r
+func (p *PlaceOrderRequest) ClientOrderID(clientOrderID string) *PlaceOrderRequest {
+	p.clientOrderID = &clientOrderID
+	return p
 }
 
-func (r *PlaceOrderRequest) Side(side SideType) *PlaceOrderRequest {
-	r.side = side
-	return r
+func (p *PlaceOrderRequest) Tag(tag string) *PlaceOrderRequest {
+	p.tag = &tag
+	return p
 }
 
-func (r *PlaceOrderRequest) OrderType(orderType OrderType) *PlaceOrderRequest {
-	r.orderType = orderType
-	return r
+func (p *PlaceOrderRequest) Side(side SideType) *PlaceOrderRequest {
+	p.side = side
+	return p
 }
 
-func (r *PlaceOrderRequest) Size(size string) *PlaceOrderRequest {
-	r.size = size
-	return r
+func (p *PlaceOrderRequest) PositionSide(positionSide string) *PlaceOrderRequest {
+	p.positionSide = &positionSide
+	return p
 }
 
-func (r *PlaceOrderRequest) Price(price string) *PlaceOrderRequest {
-	r.price = &price
-	return r
+func (p *PlaceOrderRequest) OrderType(orderType OrderType) *PlaceOrderRequest {
+	p.orderType = orderType
+	return p
 }
 
-func (r *PlaceOrderRequest) TargetCurrency(targetCurrency TargetCurrency) *PlaceOrderRequest {
-	r.targetCurrency = &targetCurrency
-	return r
+func (p *PlaceOrderRequest) Size(size string) *PlaceOrderRequest {
+	p.size = size
+	return p
+}
+
+func (p *PlaceOrderRequest) Price(price string) *PlaceOrderRequest {
+	p.price = &price
+	return p
+}
+
+func (p *PlaceOrderRequest) TakeProfitTriggerPx(takeProfitTriggerPx string) *PlaceOrderRequest {
+	p.takeProfitTriggerPx = &takeProfitTriggerPx
+	return p
+}
+
+func (p *PlaceOrderRequest) TakeProfitOrdPx(takeProfitOrdPx string) *PlaceOrderRequest {
+	p.takeProfitOrdPx = &takeProfitOrdPx
+	return p
+}
+
+func (p *PlaceOrderRequest) TakeProfitTriggerPxType(takeProfitTriggerPxType string) *PlaceOrderRequest {
+	p.takeProfitTriggerPxType = &takeProfitTriggerPxType
+	return p
+}
+
+func (p *PlaceOrderRequest) StopLossTriggerPx(stopLossTriggerPx string) *PlaceOrderRequest {
+	p.stopLossTriggerPx = &stopLossTriggerPx
+	return p
+}
+
+func (p *PlaceOrderRequest) StopLossOrdPx(stopLossOrdPx string) *PlaceOrderRequest {
+	p.stopLossOrdPx = &stopLossOrdPx
+	return p
+}
+
+func (p *PlaceOrderRequest) StopLossTriggerPxType(stopLossTriggerPxType string) *PlaceOrderRequest {
+	p.stopLossTriggerPxType = &stopLossTriggerPxType
+	return p
+}
+
+func (p *PlaceOrderRequest) TargetCurrency(targetCurrency TargetCurrency) *PlaceOrderRequest {
+	p.targetCurrency = &targetCurrency
+	return p
 }
 
 // GetQueryParameters builds and checks the query parameters and returns url.Values
-func (r *PlaceOrderRequest) GetQueryParameters() (url.Values, error) {
+func (p *PlaceOrderRequest) GetQueryParameters() (url.Values, error) {
 	var params = map[string]interface{}{}
 
 	query := url.Values{}
@@ -69,15 +109,15 @@ func (r *PlaceOrderRequest) GetQueryParameters() (url.Values, error) {
 }
 
 // GetParameters builds and checks the parameters and return the result in a map object
-func (r *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
+func (p *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 	var params = map[string]interface{}{}
 	// check instrumentID field -> json key instId
-	instrumentID := r.instrumentID
+	instrumentID := p.instrumentID
 
 	// assign parameter of instrumentID
 	params["instId"] = instrumentID
 	// check tradeMode field -> json key tdMode
-	tradeMode := r.tradeMode
+	tradeMode := p.tradeMode
 
 	// TEMPLATE check-valid-values
 	switch tradeMode {
@@ -92,24 +132,32 @@ func (r *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 
 	// assign parameter of tradeMode
 	params["tdMode"] = tradeMode
+	// check marginCurrency field -> json key ccy
+	if p.marginCurrency != nil {
+		marginCurrency := *p.marginCurrency
+
+		// assign parameter of marginCurrency
+		params["ccy"] = marginCurrency
+	} else {
+	}
 	// check clientOrderID field -> json key clOrdId
-	if r.clientOrderID != nil {
-		clientOrderID := *r.clientOrderID
+	if p.clientOrderID != nil {
+		clientOrderID := *p.clientOrderID
 
 		// assign parameter of clientOrderID
 		params["clOrdId"] = clientOrderID
 	} else {
 	}
 	// check tag field -> json key tag
-	if r.tag != nil {
-		tag := *r.tag
+	if p.tag != nil {
+		tag := *p.tag
 
 		// assign parameter of tag
 		params["tag"] = tag
 	} else {
 	}
 	// check side field -> json key side
-	side := r.side
+	side := p.side
 
 	// TEMPLATE check-valid-values
 	switch side {
@@ -124,8 +172,16 @@ func (r *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 
 	// assign parameter of side
 	params["side"] = side
+	// check positionSide field -> json key posSide
+	if p.positionSide != nil {
+		positionSide := *p.positionSide
+
+		// assign parameter of positionSide
+		params["posSide"] = positionSide
+	} else {
+	}
 	// check orderType field -> json key ordType
-	orderType := r.orderType
+	orderType := p.orderType
 
 	// TEMPLATE check-valid-values
 	switch orderType {
@@ -141,21 +197,69 @@ func (r *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 	// assign parameter of orderType
 	params["ordType"] = orderType
 	// check size field -> json key sz
-	size := r.size
+	size := p.size
 
 	// assign parameter of size
 	params["sz"] = size
 	// check price field -> json key px
-	if r.price != nil {
-		price := *r.price
+	if p.price != nil {
+		price := *p.price
 
 		// assign parameter of price
 		params["px"] = price
 	} else {
 	}
+	// check takeProfitTriggerPx field -> json key tpTriggerPx
+	if p.takeProfitTriggerPx != nil {
+		takeProfitTriggerPx := *p.takeProfitTriggerPx
+
+		// assign parameter of takeProfitTriggerPx
+		params["tpTriggerPx"] = takeProfitTriggerPx
+	} else {
+	}
+	// check takeProfitOrdPx field -> json key tpOrdPx
+	if p.takeProfitOrdPx != nil {
+		takeProfitOrdPx := *p.takeProfitOrdPx
+
+		// assign parameter of takeProfitOrdPx
+		params["tpOrdPx"] = takeProfitOrdPx
+	} else {
+	}
+	// check takeProfitTriggerPxType field -> json key tpTriggerPxType
+	if p.takeProfitTriggerPxType != nil {
+		takeProfitTriggerPxType := *p.takeProfitTriggerPxType
+
+		// assign parameter of takeProfitTriggerPxType
+		params["tpTriggerPxType"] = takeProfitTriggerPxType
+	} else {
+	}
+	// check stopLossTriggerPx field -> json key slTriggerPx
+	if p.stopLossTriggerPx != nil {
+		stopLossTriggerPx := *p.stopLossTriggerPx
+
+		// assign parameter of stopLossTriggerPx
+		params["slTriggerPx"] = stopLossTriggerPx
+	} else {
+	}
+	// check stopLossOrdPx field -> json key slOrdPx
+	if p.stopLossOrdPx != nil {
+		stopLossOrdPx := *p.stopLossOrdPx
+
+		// assign parameter of stopLossOrdPx
+		params["slOrdPx"] = stopLossOrdPx
+	} else {
+	}
+	// check stopLossTriggerPxType field -> json key slTriggerPxType
+	if p.stopLossTriggerPxType != nil {
+		stopLossTriggerPxType := *p.stopLossTriggerPxType
+
+		// assign parameter of stopLossTriggerPxType
+		params["slTriggerPxType"] = stopLossTriggerPxType
+	} else {
+	}
 	// check targetCurrency field -> json key tgtCcy
-	if r.targetCurrency != nil {
-		targetCurrency := *r.targetCurrency
+	if p.targetCurrency != nil {
+		targetCurrency := *p.targetCurrency
 
 		// TEMPLATE check-valid-values
 		switch targetCurrency {
@@ -177,17 +281,17 @@ func (r *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 }
 
 // GetParametersQuery converts the parameters from GetParameters into the url.Values format
-func (r *PlaceOrderRequest) GetParametersQuery() (url.Values, error) {
+func (p *PlaceOrderRequest) GetParametersQuery() (url.Values, error) {
 	query := url.Values{}
 
-	params, err := r.GetParameters()
+	params, err := p.GetParameters()
 	if err != nil {
 		return query, err
 	}
 
 	for _k, _v := range params {
-		if r.isVarSlice(_v) {
-			r.iterateSlice(_v, func(it interface{}) {
+		if p.isVarSlice(_v) {
+			p.iterateSlice(_v, func(it interface{}) {
 				query.Add(_k+"[]", fmt.Sprintf("%v", it))
 			})
 		} else {
@@ -199,8 +303,8 @@ func (r *PlaceOrderRequest) GetParametersQuery() (url.Values, error) {
 }
 
 // GetParametersJSON converts the parameters from GetParameters into the JSON format
-func (r *PlaceOrderRequest) GetParametersJSON() ([]byte, error) {
-	params, err := r.GetParameters()
+func (p *PlaceOrderRequest) GetParametersJSON() ([]byte, error) {
+	params, err := p.GetParameters()
 	if err != nil {
 		return nil, err
 	}
@@ -209,13 +313,13 @@ func (r *PlaceOrderRequest) GetParametersJSON() ([]byte, error) {
 }
 
 // GetSlugParameters builds and checks the slug parameters and return the result in a map object
-func (r *PlaceOrderRequest) GetSlugParameters() (map[string]interface{}, error) {
+func (p *PlaceOrderRequest) GetSlugParameters() (map[string]interface{}, error) {
 	var params = map[string]interface{}{}
 
 	return params, nil
 }
 
-func (r *PlaceOrderRequest) applySlugsToUrl(url string, slugs map[string]string) string {
+func (p *PlaceOrderRequest) applySlugsToUrl(url string, slugs map[string]string) string {
 	for _k, _v := range slugs {
 		needleRE := regexp.MustCompile(":" + _k + "\\b")
 		url = needleRE.ReplaceAllString(url, _v)
@@ -224,7 +328,7 @@ func (r *PlaceOrderRequest) applySlugsToUrl(url string, slugs map[string]string)
 	return url
 }
 
-func (r *PlaceOrderRequest) iterateSlice(slice interface{}, _f func(it interface{})) {
+func (p *PlaceOrderRequest) iterateSlice(slice interface{}, _f func(it interface{})) {
 	sliceValue := reflect.ValueOf(slice)
 	for _i := 0; _i < sliceValue.Len(); _i++ {
 		it := sliceValue.Index(_i).Interface()
@@ -232,7 +336,7 @@ func (r *PlaceOrderRequest) iterateSlice(slice interface{}, _f func(it interface
 	}
 }
 
-func (r *PlaceOrderRequest) isVarSlice(_v interface{}) bool {
+func (p *PlaceOrderRequest) isVarSlice(_v interface{}) bool {
 	rt := reflect.TypeOf(_v)
 	switch rt.Kind() {
 	case reflect.Slice:
@@ -241,9 +345,9 @@ func (r *PlaceOrderRequest) isVarSlice(_v interface{}) bool {
 	return false
 }
 
-func (r *PlaceOrderRequest) GetSlugsMap() (map[string]string, error) {
+func (p *PlaceOrderRequest) GetSlugsMap() (map[string]string, error) {
 	slugs := map[string]string{}
-	params, err := r.GetSlugParameters()
+	params, err := p.GetSlugParameters()
 	if err != nil {
 		return slugs, nil
 	}
@@ -256,14 +360,14 @@ func (r *PlaceOrderRequest) GetSlugsMap() (map[string]string, error) {
 }
 
 // GetPath returns the request path of the API
-func (r *PlaceOrderRequest) GetPath() string {
+func (p *PlaceOrderRequest) GetPath() string {
 	return "/api/v5/trade/order"
 }
 
 // Do generates the request object and send the request object to the API endpoint
-func (r *PlaceOrderRequest) Do(ctx context.Context) ([]OrderResponse, error) {
+func (p *PlaceOrderRequest) Do(ctx context.Context) ([]OrderResponse, error) {
 
-	params, err := r.GetParameters()
+	params, err := p.GetParameters()
 	if err != nil {
 		return nil, err
 	}
@@ -271,14 +375,14 @@ func (r *PlaceOrderRequest) Do(ctx context.Context) ([]OrderResponse, error) {
 
 	var apiURL string
 
-	apiURL = r.GetPath()
+	apiURL = p.GetPath()
 
-	req, err := r.client.NewAuthenticatedRequest(ctx, "POST", apiURL, query, params)
+	req, err := p.client.NewAuthenticatedRequest(ctx, "POST", apiURL, query, params)
 	if err != nil {
 		return nil, err
 	}
 
-	response, err := r.client.SendRequest(req)
+	response, err := p.client.SendRequest(req)
 	if err != nil {
 		return nil, err
 	}
