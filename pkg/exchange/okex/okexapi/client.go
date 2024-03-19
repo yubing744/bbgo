@@ -24,9 +24,9 @@ var log = logrus.WithFields(logrus.Fields{
 })
 
 const defaultHTTPTimeout = time.Second * 15
-const RestBaseURL = "https://www.okex.com/"
-const PublicWebSocketURL = "wss://ws.okex.com:8443/ws/v5/public"
-const PrivateWebSocketURL = "wss://ws.okex.com:8443/ws/v5/private"
+const RestBaseURL = "https://www.okx.com/"
+const PublicWebSocketURL = "wss://ws.okx.com:8443/ws/v5/public"
+const PrivateWebSocketURL = "wss://ws.okx.com:8443/ws/v5/private"
 const PublicBusinessWebSocketURL = "wss://wsaws.okx.com:8443/ws/v5/business"
 
 type SideType string
