@@ -156,6 +156,10 @@ type ExchangeRewardService interface {
 	QueryRewards(ctx context.Context, startTime time.Time) ([]Reward, error)
 }
 
+type ExchangePositionUpdateService interface {
+	UpdatePosition(ctx context.Context, takeProfile fixedpoint.Value)
+}
+
 type TradeQueryOptions struct {
 	StartTime   *time.Time
 	EndTime     *time.Time
