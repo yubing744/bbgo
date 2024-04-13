@@ -421,6 +421,7 @@ func (e *Exchange) submitClosePositionOrder(ctx context.Context, order types.Sub
 	}
 
 	orderReq.Tag(order.Tag)
+	orderReq.AutoCxl("true")
 
 	orderHead, err := orderReq.Do(ctx)
 	if err != nil {
