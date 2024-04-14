@@ -41,3 +41,10 @@ func (c *RestClient) NewGetOpenOrdersRequest() *GetOpenOrdersRequest {
 		instrumentType: InstrumentTypeSpot,
 	}
 }
+
+func (c *RestClient) NewGetMarginOpenOrdersRequest() *GetOpenOrdersRequest {
+	return &GetOpenOrdersRequest{
+		client:         c,
+		instrumentType: InstrumentTypeMargin,
+	}
+}

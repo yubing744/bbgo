@@ -20,7 +20,7 @@ type ClosePositionRequest struct {
 	posSide      *string `param:"posSide"`
 	marginMode   string  `param:"mgnMode"`
 	ccy          *string `param:"ccy"`
-	autoCxl      *string `param:"autoCxl"`
+	autoCxl      bool    `param:"autoCxl"`
 	clOrdId      *string `param:"clOrdId"`
 	tag          *string `param:"tag"`
 }

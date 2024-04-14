@@ -38,6 +38,8 @@ var (
 	batchCancelOrderLimiter = rate.NewLimiter(rate.Every(33*time.Millisecond), 1)
 	// Rate Limit: 60 requests per 2 seconds, Rate limit rule: UserID
 	queryOpenOrderLimiter = rate.NewLimiter(rate.Every(33*time.Millisecond), 1)
+	// Rate Limit: 60 requests per 2 seconds, Rate limit rule: UserID
+	queryAlgoOpenOrderLimiter = rate.NewLimiter(rate.Every(33*time.Millisecond), 1)
 	// Rate Limit: 20 requests per 2 seconds, Rate limit rule: UserID
 	queryClosedOrderRateLimiter = rate.NewLimiter(rate.Every(100*time.Millisecond), 1)
 	// Rate Limit: 10 requests per 2 seconds, Rate limit rule: UserID
@@ -325,6 +327,20 @@ func (e *Exchange) submitSpotOrder(ctx context.Context, order types.SubmitOrder)
 
 func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
 	if order.ClosePosition {
+		orders, err := e.QueryAlgoOpenOrders(ctx, order.Symbol)
+		log.WithField("orders", orders).
+			WithField("error", err).
+			Info("before_ClosePosition_QueryOpenOrders_result")
+
+		if len(orders) > 0 {
+			err := e.CancelAlgoOrders(ctx, orders...)
+			if err != nil {
+				log.WithField("Symbol", order.Symbol).
+					WithError(err).
+					Error("before_ClosePosition_CancelOrders_fail")
+			}
+		}
+
 		return e.submitClosePositionOrder(ctx, order)
 	}
 
@@ -421,7 +437,11 @@ func (e *Exchange) submitClosePositionOrder(ctx context.Context, order types.Sub
 	}
 
 	orderReq.Tag(order.Tag)
-	orderReq.AutoCxl("true")
+	orderReq.AutoCxl(true)
+
+	params, _ := orderReq.GetParameters()
+	log.WithField("params", params).
+		Info("order_req_start")
 
 	orderHead, err := orderReq.Do(ctx)
 	if err != nil {
@@ -429,7 +449,7 @@ func (e *Exchange) submitClosePositionOrder(ctx context.Context, order types.Sub
 	}
 
 	log.WithField("orderHead", orderHead).
-		Debug("order req result")
+		Info("order_req_end")
 
 	return &types.Order{
 		SubmitOrder:      order,
@@ -456,9 +476,15 @@ func (e *Exchange) QueryOpenOrders(ctx context.Context, symbol string) (orders [
 			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
 		}
 
-		req := e.client.NewGetOpenOrdersRequest().
+		req := e.client.NewGetOpenOrdersRequest()
+		if e.IsMargin {
+			req = e.client.NewGetMarginOpenOrdersRequest()
+		}
+
+		req.
 			InstrumentID(instrumentID).
 			After(strconv.FormatInt(nextCursor, 10))
+
 		openOrders, err := req.Do(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query open orders: %w", err)
@@ -483,6 +509,57 @@ func (e *Exchange) QueryOpenOrders(ctx context.Context, symbol string) (orders [
 			break
 		}
 		nextCursor = int64(openOrders[orderLen-1].OrderId)
+	}
+
+	return orders, err
+}
+
+func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders []types.Order, err error) {
+	instrumentID := toLocalSymbol(symbol)
+
+	//nextCursor := "0"
+	for {
+		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
+		}
+
+		req := e.client.NewGetAlgoOrdersRequest()
+		req.
+			InstrumentID(instrumentID)
+
+		params, _ := req.GetQueryParameters()
+		log.WithField("symbol", symbol).
+			WithField("params", params).
+			Info("QueryAlgoOpenOrders_start")
+
+		openOrders, err := req.Do(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query open orders: %w", err)
+		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", openOrders).
+			Info("QueryAlgoOpenOrders_result")
+
+		for _, o := range openOrders {
+			orders = append(orders, types.Order{
+				SubmitOrder: types.SubmitOrder{
+					Symbol: symbol,
+				},
+				UUID: o.AlgoID,
+			})
+		}
+
+		orderLen := len(openOrders)
+		// a defensive programming to ensure the length of order response is expected.
+		if orderLen > defaultQueryLimit {
+			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
+		}
+
+		if orderLen < defaultQueryLimit {
+			break
+		}
+		//nextCursor = openOrders[orderLen-1].CTime
 	}
 
 	return orders, err
@@ -516,6 +593,32 @@ func (e *Exchange) CancelOrders(ctx context.Context, orders ...types.Order) erro
 	}
 	batchReq := e.client.NewBatchCancelOrderRequest()
 	batchReq.Add(reqs...)
+	_, err := batchReq.Do(ctx)
+	return err
+}
+
+func (e *Exchange) CancelAlgoOrders(ctx context.Context, orders ...types.Order) error {
+	if len(orders) == 0 {
+		return nil
+	}
+
+	var reqs []*okexapi.CancelAlgoOrder
+	for _, order := range orders {
+		if len(order.Symbol) == 0 {
+			return ErrSymbolRequired
+		}
+
+		reqs = append(reqs, &okexapi.CancelAlgoOrder{
+			InstrumentID: toLocalSymbol(order.Symbol),
+			AlgoOrderID:  order.UUID,
+		})
+	}
+
+	if err := batchCancelOrderLimiter.Wait(ctx); err != nil {
+		return fmt.Errorf("batch cancel order rate limiter wait error: %w", err)
+	}
+	batchReq := e.client.NewCancelAlgoOrderRequest()
+	batchReq.SetPayload(reqs)
 	_, err := batchReq.Do(ctx)
 	return err
 }
