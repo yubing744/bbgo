@@ -517,7 +517,6 @@ func (e *Exchange) QueryOpenOrders(ctx context.Context, symbol string) (orders [
 func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders []types.Order, err error) {
 	instrumentID := toLocalSymbol(symbol)
 
-	//nextCursor := "0"
 	for {
 		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
@@ -559,7 +558,6 @@ func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orde
 		if orderLen < defaultQueryLimit {
 			break
 		}
-		//nextCursor = openOrders[orderLen-1].CTime
 	}
 
 	return orders, err
