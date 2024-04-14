@@ -337,7 +337,16 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 			Info("before_ClosePosition_QueryOpenOrders_result")
 
 		if len(orders)+len(ocoOrders) > 0 {
-			allOrders := append(orders, ocoOrders...)
+			allOrders := make([]types.Order, 0)
+
+			if len(orders) > 0 {
+				allOrders = append(allOrders, orders...)
+			}
+
+			if len(ocoOrders) > 0 {
+				allOrders = append(allOrders, ocoOrders...)
+			}
+
 			err := e.CancelAlgoOrders(ctx, allOrders...)
 			if err != nil {
 				log.WithField("Symbol", order.Symbol).
