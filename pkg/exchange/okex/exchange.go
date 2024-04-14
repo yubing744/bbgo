@@ -46,6 +46,8 @@ var (
 	queryTradeLimiter = rate.NewLimiter(rate.Every(200*time.Millisecond), 1)
 	// Rate Limit: 40 requests per 2 seconds, Rate limit rule: IP
 	queryKLineLimiter = rate.NewLimiter(rate.Every(50*time.Millisecond), 1)
+	// Rate Limit: 20 requests per 2 seconds, Rate limit rule: IP
+	AmendAlgoOrdeLimiter = rate.NewLimiter(rate.Every(100*time.Millisecond), 1)
 )
 
 const (
@@ -420,10 +422,17 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 		orderReq.TakeProfitOrdPx("-1")
 	}
 
+	params, _ := orderReq.GetParameters()
+	log.WithField("params", params).
+		Info("submitMarginOrder_start")
+
 	orders, err := orderReq.Do(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	log.WithField("orders", orders).
+		Info("submitMarginOrder_result")
 
 	if len(orders) != 1 {
 		return nil, fmt.Errorf("unexpected length of order response: %v", orders)
@@ -1001,4 +1010,51 @@ func (e *Exchange) SupportedInterval() map[types.Interval]int {
 func (e *Exchange) IsSupportedInterval(interval types.Interval) bool {
 	_, ok := SupportedIntervals[interval]
 	return ok
+}
+
+func (e *Exchange) UpdatePosition(ctx context.Context, position *types.Position) error {
+	ocoOrders, err := e.QueryOCOAlgoOpenOrders(ctx, position.Symbol)
+	if err != nil {
+		return errors.Wrap(err, "QueryOCOAlgoOpenOrders_fail")
+	}
+
+	log.WithField("ocoOrders", ocoOrders).
+		Info("QueryOCOAlgoOpenOrders_result")
+
+	if len(ocoOrders) > 0 {
+		order := ocoOrders[0]
+
+		req := e.client.NewAmendAlgoOrderRequest()
+		req.InstID(toLocalSymbol(position.Symbol))
+		req.AlgoID(order.UUID)
+
+		if position.TpTriggerPx != nil {
+			req.NewTpTriggerPxType("last")
+			req.NewTpTriggerPx(position.Market.FormatPrice(*position.TpTriggerPx))
+			req.NewTpOrdPx("-1")
+		}
+
+		if position.SlTriggerPx != nil {
+			req.NewSlTriggerPxType("last")
+			req.NewSlTriggerPx(position.Market.FormatPrice(*position.SlTriggerPx))
+			req.NewSlOrdPx("-1")
+		}
+
+		params, _ := req.GetParameters()
+		log.WithField("params", params).Info("AmendAlgoOrder_start")
+
+		resp, err := req.Do(ctx)
+		if err != nil {
+			log.WithField("params", params).
+				Error("AmendAlgoOrder_fail")
+			return err
+		}
+
+		log.WithField("resp", resp).
+			Info("AmendAlgoOrder_ok")
+
+		return nil
+	}
+
+	return nil
 }

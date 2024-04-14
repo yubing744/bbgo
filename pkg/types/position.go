@@ -83,6 +83,10 @@ type Position struct {
 
 	// ttl is the ttl to keep in persistence
 	ttl time.Duration
+
+	// for update Take-profit and stop-loss
+	TpTriggerPx *fixedpoint.Value
+	SlTriggerPx *fixedpoint.Value
 }
 
 func (s *Position) SetTTL(ttl time.Duration) {
