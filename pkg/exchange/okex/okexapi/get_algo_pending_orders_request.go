@@ -124,6 +124,13 @@ type GetAlgoPendingOrdersRequest struct {
 func (c *RestClient) NewGetAlgoOrdersRequest() *GetAlgoPendingOrdersRequest {
 	return &GetAlgoPendingOrdersRequest{
 		client:  c,
+		ordType: AlgoOrderTypeConditional,
+	}
+}
+
+func (c *RestClient) NewGetOCOAlgoOrdersRequest() *GetAlgoPendingOrdersRequest {
+	return &GetAlgoPendingOrdersRequest{
+		client:  c,
 		ordType: AlgoOrderTypeOCO,
 	}
 }

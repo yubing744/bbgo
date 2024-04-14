@@ -327,18 +327,26 @@ func (e *Exchange) submitSpotOrder(ctx context.Context, order types.SubmitOrder)
 
 func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
 	if order.ClosePosition {
-		orders, err := e.QueryAlgoOpenOrders(ctx, order.Symbol)
+		orders, err1 := e.QueryAlgoOpenOrders(ctx, order.Symbol)
+		ocoOrders, err2 := e.QueryOCOAlgoOpenOrders(ctx, order.Symbol)
+
 		log.WithField("orders", orders).
-			WithField("error", err).
+			WithField("ocoOrders", ocoOrders).
+			WithField("error1", err1).
+			WithField("error2", err2).
 			Info("before_ClosePosition_QueryOpenOrders_result")
 
-		if len(orders) > 0 {
-			err := e.CancelAlgoOrders(ctx, orders...)
+		if len(orders)+len(ocoOrders) > 0 {
+			allOrders := append(orders, ocoOrders...)
+			err := e.CancelAlgoOrders(ctx, allOrders...)
 			if err != nil {
 				log.WithField("Symbol", order.Symbol).
 					WithError(err).
 					Error("before_ClosePosition_CancelOrders_fail")
 			}
+
+			log.WithField("Symbol", order.Symbol).
+				Info("before_ClosePosition_CancelOrders_ok")
 		}
 
 		return e.submitClosePositionOrder(ctx, order)
@@ -563,6 +571,55 @@ func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orde
 	return orders, err
 }
 
+func (e *Exchange) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (orders []types.Order, err error) {
+	instrumentID := toLocalSymbol(symbol)
+
+	for {
+		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
+		}
+
+		req := e.client.NewGetOCOAlgoOrdersRequest()
+		req.
+			InstrumentID(instrumentID)
+
+		params, _ := req.GetQueryParameters()
+		log.WithField("symbol", symbol).
+			WithField("params", params).
+			Info("QueryOCOAlgoOpenOrders_start")
+
+		openOrders, err := req.Do(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query open orders: %w", err)
+		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", openOrders).
+			Info("QueryOCOAlgoOpenOrders_result")
+
+		for _, o := range openOrders {
+			orders = append(orders, types.Order{
+				SubmitOrder: types.SubmitOrder{
+					Symbol: symbol,
+				},
+				UUID: o.AlgoID,
+			})
+		}
+
+		orderLen := len(openOrders)
+		// a defensive programming to ensure the length of order response is expected.
+		if orderLen > defaultQueryLimit {
+			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
+		}
+
+		if orderLen < defaultQueryLimit {
+			break
+		}
+	}
+
+	return orders, err
+}
+
 func (e *Exchange) CancelOrders(ctx context.Context, orders ...types.Order) error {
 	if len(orders) == 0 {
 		return nil
@@ -617,7 +674,17 @@ func (e *Exchange) CancelAlgoOrders(ctx context.Context, orders ...types.Order) 
 	}
 	batchReq := e.client.NewCancelAlgoOrderRequest()
 	batchReq.SetPayload(reqs)
-	_, err := batchReq.Do(ctx)
+
+	params, _ := batchReq.GetParameters()
+	log.WithField("params", params).
+		Info("CancelAlgoOrders_start")
+
+	resp, err := batchReq.Do(ctx)
+
+	log.WithField("resp", resp).
+		WithField("error", err).
+		Info("CancelAlgoOrders_result")
+
 	return err
 }
 
