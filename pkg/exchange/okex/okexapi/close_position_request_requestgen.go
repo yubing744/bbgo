@@ -31,8 +31,8 @@ func (c *ClosePositionRequest) Ccy(ccy string) *ClosePositionRequest {
 	return c
 }
 
-func (c *ClosePositionRequest) AutoCxl(autoCxl string) *ClosePositionRequest {
-	c.autoCxl = &autoCxl
+func (c *ClosePositionRequest) AutoCxl(autoCxl bool) *ClosePositionRequest {
+	c.autoCxl = autoCxl
 	return c
 }
 
@@ -88,13 +88,10 @@ func (c *ClosePositionRequest) GetParameters() (map[string]interface{}, error) {
 	} else {
 	}
 	// check autoCxl field -> json key autoCxl
-	if c.autoCxl != nil {
-		autoCxl := *c.autoCxl
+	autoCxl := c.autoCxl
 
-		// assign parameter of autoCxl
-		params["autoCxl"] = autoCxl
-	} else {
-	}
+	// assign parameter of autoCxl
+	params["autoCxl"] = autoCxl
 	// check clOrdId field -> json key clOrdId
 	if c.clOrdId != nil {
 		clOrdId := *c.clOrdId
