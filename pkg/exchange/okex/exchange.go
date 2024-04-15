@@ -567,9 +567,11 @@ func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orde
 			Info("QueryAlgoOpenOrders_result")
 
 		for _, o := range openOrders {
+			amount, _ := fixedpoint.NewFromString(o.Sz)
 			orders = append(orders, types.Order{
 				SubmitOrder: types.SubmitOrder{
-					Symbol: symbol,
+					Symbol:   symbol,
+					Quantity: amount,
 				},
 				UUID: o.AlgoID,
 			})
@@ -1027,6 +1029,7 @@ func (e *Exchange) UpdatePosition(ctx context.Context, position *types.Position)
 		req := e.client.NewAmendAlgoOrderRequest()
 		req.InstID(toLocalSymbol(position.Symbol))
 		req.AlgoID(order.UUID)
+		req.NewSz(position.Market.FormatQuantity(order.Quantity))
 
 		if position.TpTriggerPx != nil {
 			req.NewTpTriggerPxType("last")
@@ -1046,6 +1049,7 @@ func (e *Exchange) UpdatePosition(ctx context.Context, position *types.Position)
 		resp, err := req.Do(ctx)
 		if err != nil {
 			log.WithField("params", params).
+				WithError(err).
 				Error("AmendAlgoOrder_fail")
 			return err
 		}
