@@ -1086,7 +1086,7 @@ func (e *Exchange) PlaceTakeProfitStopLossOrder(ctx context.Context, position *t
 		orderReq.Side("buy")
 	}
 
-	orderReq.Sz(position.Market.FormatQuantity(position.Quote))
+	orderReq.Sz(position.Market.FormatQuantity(position.Quote.Abs()))
 
 	if position.TpTriggerPx != nil {
 		orderReq.TpTriggerPxType("last")
