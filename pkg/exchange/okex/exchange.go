@@ -1068,7 +1068,7 @@ func (e *Exchange) UpdatePosition_Bakup(ctx context.Context, position *types.Pos
 	return nil
 }
 
-func (e *Exchange) PlaceTakeProfitStopLossOrder(ctx context.Context, position *types.Position) error {
+func (e *Exchange) PlaceTakeProfitAndStopLossOrder(ctx context.Context, position *types.Position) error {
 	orderReq := e.client.NewPlaceOCOAlgoOrderRequest()
 
 	// Margin mode cross isolated
@@ -1086,7 +1086,9 @@ func (e *Exchange) PlaceTakeProfitStopLossOrder(ctx context.Context, position *t
 		orderReq.Side("buy")
 	}
 
-	orderReq.Sz(position.Market.FormatQuantity(position.Quote.Abs()))
+	orderReq.CloseFraction("1")
+	orderReq.CxlOnClosePos(true)
+	orderReq.ReduceOnly(true)
 
 	if position.TpTriggerPx != nil {
 		orderReq.TpTriggerPxType("last")
@@ -1121,5 +1123,5 @@ func (e *Exchange) PlaceTakeProfitStopLossOrder(ctx context.Context, position *t
 
 func (e *Exchange) UpdatePosition(ctx context.Context, position *types.Position) error {
 	e.autoCancelAllAlgoOrders(ctx, position.Symbol)
-	return e.PlaceTakeProfitStopLossOrder(ctx, position)
+	return e.PlaceTakeProfitAndStopLossOrder(ctx, position)
 }
