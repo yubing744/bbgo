@@ -4,6 +4,8 @@ import (
 	"github.com/c9s/requestgen"
 )
 
+//go:generate -command GetRequest requestgen -method GET -responseType .APIResponse -responseDataField Data
+//go:generate -command PostRequest requestgen -method POST -responseType .APIResponse -responseDataField Data
 type AmendAlgoOrder struct {
 	AlgoID      string `json:"algoId"`
 	AlgoClOrdID string `json:"algoClOrdId"`
@@ -12,11 +14,7 @@ type AmendAlgoOrder struct {
 	SMsg        string `json:"sMsg"`
 }
 
-//go:generate -command GetRequest requestgen -method GET -responseType .APIResponse -responseDataField Data
-//go:generate -command PostRequest requestgen -method POST -responseType .APIResponse -responseDataField Data
-
-//go:generate PostRequest -url "/api/v5/trade/amend-algos" -type AmendAlgoOrderRequest -responseType .AmendAlgoOrderResponse
-
+//go:generate PostRequest -url "/api/v5/trade/amend-algos" -type AmendAlgoOrderRequest -responseDataType []AmendAlgoOrder
 type AmendAlgoOrderRequest struct {
 	client requestgen.AuthenticatedAPIClient
 
@@ -70,11 +68,6 @@ type AmendAlgoOrderRequest struct {
 	// index: index price
 	// mark: mark price
 	newSlTriggerPxType *string `param:"newSlTriggerPxType"`
-}
-
-type AmendAlgoOrderResponse struct {
-	APIResponse
-	Data []AmendAlgoOrder `json:"data"`
 }
 
 func (c *RestClient) NewAmendAlgoOrderRequest() *AmendAlgoOrderRequest {

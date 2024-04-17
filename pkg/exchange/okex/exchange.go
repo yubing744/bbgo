@@ -1071,6 +1071,8 @@ func (e *Exchange) UpdatePosition_Bakup(ctx context.Context, position *types.Pos
 func (e *Exchange) PlaceTakeProfitAndStopLossOrder(ctx context.Context, position *types.Position) error {
 	orderReq := e.client.NewPlaceOCOAlgoOrderRequest()
 
+	orderReq.InstID(toLocalSymbol(position.Symbol))
+
 	// Margin mode cross isolated
 	if e.IsIsolatedMargin {
 		orderReq.TdMode(okexapi.TradeModeIsolated)
@@ -1078,17 +1080,13 @@ func (e *Exchange) PlaceTakeProfitAndStopLossOrder(ctx context.Context, position
 		orderReq.TdMode(okexapi.TradeModeCross)
 	}
 
-	orderReq.InstID(toLocalSymbol(position.Symbol))
-
 	if position.IsLong() {
 		orderReq.Side("sell")
+		orderReq.Sz(position.Market.FormatQuantity(position.Quote.Abs()))
 	} else if position.IsShort() {
 		orderReq.Side("buy")
+		orderReq.Sz(position.Market.FormatQuantity(position.Base.Abs()))
 	}
-
-	orderReq.CloseFraction("1")
-	orderReq.CxlOnClosePos(true)
-	orderReq.ReduceOnly(true)
 
 	if position.TpTriggerPx != nil {
 		orderReq.TpTriggerPxType("last")
