@@ -15,7 +15,7 @@ type PlaceAlgoOrderResponse struct {
 	SMsg        string `json:"sMsg"`
 }
 
-//go:generate PostRequest -url "/api/v5/trade/order-algo" -type PlaceAlgoOrderRequest -responseType .PlaceAlgoOrderResponse
+//go:generate PostRequest -url "/api/v5/trade/order-algo" -type PlaceAlgoOrderRequest -responseDataType []PlaceAlgoOrderResponse
 type PlaceAlgoOrderRequest struct {
 	client requestgen.AuthenticatedAPIClient
 
