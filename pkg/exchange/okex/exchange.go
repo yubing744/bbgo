@@ -1080,6 +1080,8 @@ func (e *Exchange) PlaceTakeProfitAndStopLossOrder(ctx context.Context, position
 		orderReq.TdMode(okexapi.TradeModeCross)
 	}
 
+	orderReq.Ccy(position.Market.QuoteCurrency)
+
 	if position.IsLong() {
 		orderReq.Side("sell")
 		orderReq.Sz(position.Market.FormatQuantity(position.Quote.Abs()))
