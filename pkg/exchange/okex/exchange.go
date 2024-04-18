@@ -46,6 +46,8 @@ var (
 	queryTradeLimiter = rate.NewLimiter(rate.Every(200*time.Millisecond), 1)
 	// Rate Limit: 40 requests per 2 seconds, Rate limit rule: IP
 	queryKLineLimiter = rate.NewLimiter(rate.Every(50*time.Millisecond), 1)
+	// Rate Limit: 20 requests per 2 seconds, Rate limit rule: IP
+	AmendAlgoOrdeLimiter = rate.NewLimiter(rate.Every(100*time.Millisecond), 1)
 )
 
 const (
@@ -325,39 +327,44 @@ func (e *Exchange) submitSpotOrder(ctx context.Context, order types.SubmitOrder)
 	*/
 }
 
-func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
-	if order.ClosePosition {
-		orders, err1 := e.QueryAlgoOpenOrders(ctx, order.Symbol)
-		ocoOrders, err2 := e.QueryOCOAlgoOpenOrders(ctx, order.Symbol)
+func (e *Exchange) autoCancelAllAlgoOrders(ctx context.Context, symbol string) error {
+	orders, err1 := e.QueryAlgoOpenOrders(ctx, symbol)
+	ocoOrders, err2 := e.QueryOCOAlgoOpenOrders(ctx, symbol)
 
-		log.WithField("orders", orders).
-			WithField("ocoOrders", ocoOrders).
-			WithField("error1", err1).
-			WithField("error2", err2).
-			Info("before_ClosePosition_QueryOpenOrders_result")
+	log.WithField("orders", orders).
+		WithField("ocoOrders", ocoOrders).
+		WithField("error1", err1).
+		WithField("error2", err2).
+		Info("autoCancelAlgoOrders_QueryOpenOrders_result")
 
-		if len(orders)+len(ocoOrders) > 0 {
-			allOrders := make([]types.Order, 0)
+	if len(orders)+len(ocoOrders) > 0 {
+		allOrders := make([]types.Order, 0)
 
-			if len(orders) > 0 {
-				allOrders = append(allOrders, orders...)
-			}
-
-			if len(ocoOrders) > 0 {
-				allOrders = append(allOrders, ocoOrders...)
-			}
-
-			err := e.CancelAlgoOrders(ctx, allOrders...)
-			if err != nil {
-				log.WithField("Symbol", order.Symbol).
-					WithError(err).
-					Error("before_ClosePosition_CancelOrders_fail")
-			}
-
-			log.WithField("Symbol", order.Symbol).
-				Info("before_ClosePosition_CancelOrders_ok")
+		if len(orders) > 0 {
+			allOrders = append(allOrders, orders...)
 		}
 
+		if len(ocoOrders) > 0 {
+			allOrders = append(allOrders, ocoOrders...)
+		}
+
+		err := e.CancelAlgoOrders(ctx, allOrders...)
+		if err != nil {
+			log.WithField("Symbol", symbol).
+				WithError(err).
+				Error("autoCancelAlgoOrders_CancelOrders_fail")
+		}
+
+		log.WithField("Symbol", symbol).
+			Info("autoCancelAlgoOrders_CancelOrders_ok")
+	}
+
+	return nil
+}
+
+func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrder) (*types.Order, error) {
+	if order.ClosePosition {
+		e.autoCancelAllAlgoOrders(ctx, order.Symbol)
 		return e.submitClosePositionOrder(ctx, order)
 	}
 
@@ -420,10 +427,17 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 		orderReq.TakeProfitOrdPx("-1")
 	}
 
+	params, _ := orderReq.GetParameters()
+	log.WithField("params", params).
+		Info("submitMarginOrder_start")
+
 	orders, err := orderReq.Do(ctx)
 	if err != nil {
 		return nil, err
 	}
+
+	log.WithField("orders", orders).
+		Info("submitMarginOrder_result")
 
 	if len(orders) != 1 {
 		return nil, fmt.Errorf("unexpected length of order response: %v", orders)
@@ -558,9 +572,11 @@ func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orde
 			Info("QueryAlgoOpenOrders_result")
 
 		for _, o := range openOrders {
+			amount, _ := fixedpoint.NewFromString(o.Sz)
 			orders = append(orders, types.Order{
 				SubmitOrder: types.SubmitOrder{
-					Symbol: symbol,
+					Symbol:   symbol,
+					Quantity: amount,
 				},
 				UUID: o.AlgoID,
 			})
@@ -1001,4 +1017,111 @@ func (e *Exchange) SupportedInterval() map[types.Interval]int {
 func (e *Exchange) IsSupportedInterval(interval types.Interval) bool {
 	_, ok := SupportedIntervals[interval]
 	return ok
+}
+
+func (e *Exchange) UpdatePosition_Bakup(ctx context.Context, position *types.Position) error {
+	ocoOrders, err := e.QueryOCOAlgoOpenOrders(ctx, position.Symbol)
+	if err != nil {
+		return errors.Wrap(err, "QueryOCOAlgoOpenOrders_fail")
+	}
+
+	log.WithField("ocoOrders", ocoOrders).
+		Info("QueryOCOAlgoOpenOrders_result")
+
+	if len(ocoOrders) > 0 {
+		order := ocoOrders[0]
+
+		req := e.client.NewAmendAlgoOrderRequest()
+		req.InstID(toLocalSymbol(position.Symbol))
+		req.AlgoID(order.UUID)
+		req.NewSz(position.Market.FormatQuantity(order.Quantity))
+
+		if position.TpTriggerPx != nil {
+			req.NewTpTriggerPxType("last")
+			req.NewTpTriggerPx(position.Market.FormatPrice(*position.TpTriggerPx))
+			req.NewTpOrdPx("-1")
+		}
+
+		if position.SlTriggerPx != nil {
+			req.NewSlTriggerPxType("last")
+			req.NewSlTriggerPx(position.Market.FormatPrice(*position.SlTriggerPx))
+			req.NewSlOrdPx("-1")
+		}
+
+		params, _ := req.GetParameters()
+		log.WithField("params", params).Info("AmendAlgoOrder_start")
+
+		resp, err := req.Do(ctx)
+		if err != nil {
+			log.WithField("params", params).
+				WithError(err).
+				Error("AmendAlgoOrder_fail")
+			return err
+		}
+
+		log.WithField("resp", resp).
+			Info("AmendAlgoOrder_ok")
+
+		return nil
+	}
+
+	return nil
+}
+
+func (e *Exchange) PlaceTakeProfitAndStopLossOrder(ctx context.Context, position *types.Position) error {
+	orderReq := e.client.NewPlaceOCOAlgoOrderRequest()
+
+	orderReq.InstID(toLocalSymbol(position.Symbol))
+
+	// Margin mode cross isolated
+	if e.IsIsolatedMargin {
+		orderReq.TdMode(okexapi.TradeModeIsolated)
+	} else {
+		orderReq.TdMode(okexapi.TradeModeCross)
+	}
+
+	orderReq.Ccy(position.Market.QuoteCurrency)
+
+	if position.IsLong() {
+		orderReq.Side("sell")
+		orderReq.Sz(position.Market.FormatQuantity(position.Quote.Abs()))
+	} else if position.IsShort() {
+		orderReq.Side("buy")
+		orderReq.Sz(position.Market.FormatQuantity(position.Base.Abs()))
+	}
+
+	if position.TpTriggerPx != nil {
+		orderReq.TpTriggerPxType("last")
+		orderReq.TpTriggerPx(position.Market.FormatPrice(*position.TpTriggerPx))
+		orderReq.TpOrdPx("-1")
+	}
+
+	if position.SlTriggerPx != nil {
+		orderReq.SlTriggerPxType("last")
+		orderReq.SlTriggerPx(position.Market.FormatPrice(*position.SlTriggerPx))
+		orderReq.SlOrdPx("-1")
+	}
+
+	params, _ := orderReq.GetParameters()
+	log.WithField("params", params).
+		Info("PlaceTakeProfitStopLossOrder_start")
+
+	orders, err := orderReq.Do(ctx)
+	if err != nil {
+		log.WithField("params", params).
+			WithError(err).
+			Error("PlaceTakeProfitStopLossOrder_fail")
+
+		return err
+	}
+
+	log.WithField("orders", orders).
+		Info("PlaceTakeProfitStopLossOrder_ok")
+
+	return nil
+}
+
+func (e *Exchange) UpdatePosition(ctx context.Context, position *types.Position) error {
+	e.autoCancelAllAlgoOrders(ctx, position.Symbol)
+	return e.PlaceTakeProfitAndStopLossOrder(ctx, position)
 }
