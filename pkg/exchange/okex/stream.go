@@ -271,7 +271,7 @@ func (e *Stream) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Info("QueryAlgoOpenOrders_start")
+			Info("Stream#QueryAlgoOpenOrders_start")
 
 		orders, err = req.Do(ctx)
 		if err != nil {
@@ -280,7 +280,7 @@ func (e *Stream) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("QueryAlgoOpenOrders_result")
+			Info("Stream#QueryAlgoOpenOrders_result")
 
 		orderLen := len(orders)
 		// a defensive programming to ensure the length of order response is expected.
@@ -313,6 +313,8 @@ func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEven
 
 				slTriggerPx, err := fixedpoint.NewFromString(algoOrder.SlTriggerPx)
 				if err != nil {
+					log.WithError(err).Error("handlePositionDetailsEvent_parse_SlTriggerPx_error")
+				} else {
 					position.SlTriggerPxType = algoOrder.SlTriggerPxType
 					position.SlOrdPx = algoOrder.SlOrdPx
 					position.SlTriggerPx = &slTriggerPx
@@ -320,11 +322,16 @@ func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEven
 
 				tpTriggerPx, err := fixedpoint.NewFromString(algoOrder.TpTriggerPx)
 				if err != nil {
+					log.WithError(err).Error("handlePositionDetailsEvent_parse_TpTriggerPx_error")
+				} else {
 					position.TpTriggerPxType = algoOrder.TpTriggerPxType
 					position.TpOrdPx = algoOrder.TpOrdPx
 					position.TpTriggerPx = &tpTriggerPx
 				}
 			}
+
+			log.WithField("position", position).
+				Info("handlePositionDetailsEvent")
 
 			s.EmitPositionUpdate(position)
 		}
