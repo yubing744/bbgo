@@ -77,6 +77,9 @@ func parseWebSocketEvent(in []byte) (interface{}, error) {
 		return orderTrade, nil
 
 	case ChannelPositions:
+		data, _ := json.Marshal(event.Data)
+		log.WithField("data", string(data)).Info("parseWebSocketEvent_PositionUpdateEvent_data")
+
 		var positionUpdateEvents []PositionUpdateEvent
 		err := json.Unmarshal(event.Data, &positionUpdateEvents)
 		if err != nil {

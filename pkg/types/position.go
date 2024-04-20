@@ -39,6 +39,14 @@ type PositionInfo struct {
 	AverageCost fixedpoint.Value `json:"averageCost" db:"average_cost"`
 	TradeID     uint64           `json:"tradeId" db:"trade_id"`
 
+	// for update Take-profit and stop-loss
+	TpTriggerPx     *fixedpoint.Value `json:"tpTriggerPx"`
+	TpTriggerPxType string            `json:"tpTriggerPxType"`
+	TpOrdPx         string            `json:"tpOrdPx"`
+	SlTriggerPx     *fixedpoint.Value `json:"slTriggerPx"`
+	SlTriggerPxType string            `json:"slTriggerPxType"`
+	SlOrdPx         string            `json:"slOrdPx"`
+
 	OpenedAt  time.Time `json:"openedAt,omitempty" db:"-"`
 	ChangedAt time.Time `json:"changedAt,omitempty" db:"changed_at"`
 }
@@ -85,8 +93,12 @@ type Position struct {
 	ttl time.Duration
 
 	// for update Take-profit and stop-loss
-	TpTriggerPx *fixedpoint.Value
-	SlTriggerPx *fixedpoint.Value
+	TpTriggerPx     *fixedpoint.Value `json:"tpTriggerPx"`
+	TpTriggerPxType string            `json:"tpTriggerPxType"`
+	TpOrdPx         string            `json:"tpOrdPx"`
+	SlTriggerPx     *fixedpoint.Value `json:"slTriggerPx"`
+	SlTriggerPxType string            `json:"slTriggerPxType"`
+	SlOrdPx         string            `json:"slOrdPx"`
 }
 
 func (s *Position) SetTTL(ttl time.Duration) {
@@ -269,6 +281,18 @@ func (p *Position) Update(pos PositionInfo) bool {
 		p.AverageCost = pos.AverageCost
 		p.TradeID = pos.TradeID
 		p.ChangedAt = pos.ChangedAt
+
+		if pos.SlTriggerPx != nil {
+			p.SlTriggerPx = pos.SlTriggerPx
+			p.SlTriggerPxType = pos.SlTriggerPxType
+			p.SlOrdPx = pos.SlOrdPx
+		}
+
+		if pos.TpTriggerPx != nil {
+			p.TpTriggerPx = pos.TpTriggerPx
+			p.TpTriggerPxType = pos.TpTriggerPxType
+			p.TpOrdPx = pos.TpOrdPx
+		}
 
 		p.EmitModify(p.Base, p.Quote, p.AverageCost)
 		return true
