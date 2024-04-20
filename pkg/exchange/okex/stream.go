@@ -271,7 +271,7 @@ func (e *Stream) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Info("Stream#QueryAlgoOpenOrders_start")
+			Debug("Stream#QueryAlgoOpenOrders_start")
 
 		orders, err = req.Do(ctx)
 		if err != nil {
@@ -280,7 +280,7 @@ func (e *Stream) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("Stream#QueryAlgoOpenOrders_result")
+			Debug("Stream#QueryAlgoOpenOrders_result")
 
 		orderLen := len(orders)
 		// a defensive programming to ensure the length of order response is expected.
@@ -331,7 +331,7 @@ func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEven
 			}
 
 			log.WithField("position", position).
-				Info("handlePositionDetailsEvent")
+				Debug("handlePositionDetailsEvent")
 
 			s.EmitPositionUpdate(position)
 		}
