@@ -10,6 +10,7 @@ import (
 	"github.com/c9s/bbgo/pkg/exchange/okex/okexapi"
 	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/types"
+	"github.com/sirupsen/logrus"
 )
 
 type Channel string
@@ -77,6 +78,11 @@ func parseWebSocketEvent(in []byte) (interface{}, error) {
 		return orderTrade, nil
 
 	case ChannelPositions:
+		if logrus.IsLevelEnabled(logrus.DebugLevel) {
+			data, _ := json.Marshal(event.Data)
+			log.WithField("data", string(data)).Debug("parseWebSocketEvent_PositionUpdateEvent_data")
+		}
+
 		var positionUpdateEvents []PositionUpdateEvent
 		err := json.Unmarshal(event.Data, &positionUpdateEvents)
 		if err != nil {

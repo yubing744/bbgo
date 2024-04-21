@@ -39,6 +39,14 @@ type PositionInfo struct {
 	AverageCost fixedpoint.Value `json:"averageCost" db:"average_cost"`
 	TradeID     uint64           `json:"tradeId" db:"trade_id"`
 
+	// for update Take-profit and stop-loss
+	TpTriggerPx     *fixedpoint.Value `json:"tpTriggerPx"`
+	TpTriggerPxType string            `json:"tpTriggerPxType"`
+	TpOrdPx         string            `json:"tpOrdPx"`
+	SlTriggerPx     *fixedpoint.Value `json:"slTriggerPx"`
+	SlTriggerPxType string            `json:"slTriggerPxType"`
+	SlOrdPx         string            `json:"slOrdPx"`
+
 	OpenedAt  time.Time `json:"openedAt,omitempty" db:"-"`
 	ChangedAt time.Time `json:"changedAt,omitempty" db:"changed_at"`
 }
@@ -85,8 +93,12 @@ type Position struct {
 	ttl time.Duration
 
 	// for update Take-profit and stop-loss
-	TpTriggerPx *fixedpoint.Value
-	SlTriggerPx *fixedpoint.Value
+	TpTriggerPx     *fixedpoint.Value `json:"tpTriggerPx"`
+	TpTriggerPxType string            `json:"tpTriggerPxType"`
+	TpOrdPx         string            `json:"tpOrdPx"`
+	SlTriggerPx     *fixedpoint.Value `json:"slTriggerPx"`
+	SlTriggerPxType string            `json:"slTriggerPxType"`
+	SlOrdPx         string            `json:"slOrdPx"`
 }
 
 func (s *Position) SetTTL(ttl time.Duration) {
@@ -260,10 +272,30 @@ func (p *Position) EmitModify(baseQty fixedpoint.Value, quoteQty fixedpoint.Valu
 }
 
 func (p *Position) Update(pos PositionInfo) bool {
+	triggerPxUpdate := false
+
+	if pos.SlTriggerPx != nil &&
+		(p.SlTriggerPx == nil || !p.SlTriggerPx.Eq(*pos.SlTriggerPx)) {
+		p.SlTriggerPx = pos.SlTriggerPx
+		p.SlTriggerPxType = pos.SlTriggerPxType
+		p.SlOrdPx = pos.SlOrdPx
+
+		triggerPxUpdate = true
+	}
+
+	if pos.TpTriggerPx != nil &&
+		(p.TpTriggerPx == nil || !p.TpTriggerPx.Eq(*pos.TpTriggerPx)) {
+		p.TpTriggerPx = pos.TpTriggerPx
+		p.TpTriggerPxType = pos.TpTriggerPxType
+		p.TpOrdPx = pos.TpOrdPx
+
+		triggerPxUpdate = true
+	}
+
 	if p.Base.Compare(pos.Base) != 0 ||
 		p.Quote.Compare(pos.Quote) != 0 ||
 		p.AverageCost.Compare(pos.AverageCost) != 0 ||
-		p.TradeID != pos.TradeID {
+		p.TradeID != pos.TradeID || triggerPxUpdate {
 		p.Base = pos.Base
 		p.Quote = pos.Quote
 		p.AverageCost = pos.AverageCost
@@ -476,11 +508,13 @@ func (p *Position) PlainText() (msg string) {
 }
 
 func (p *Position) String() string {
-	return fmt.Sprintf("POSITION %s: average cost = %v, base = %v, quote = %v",
+	return fmt.Sprintf("POSITION %s: average cost = %v, base = %v, quote = %v, tp = %v, sl = %v",
 		p.Symbol,
 		p.AverageCost,
 		p.Base,
 		p.Quote,
+		p.TpTriggerPx,
+		p.SlTriggerPx,
 	)
 }
 

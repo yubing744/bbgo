@@ -11,6 +11,7 @@ import (
 
 	"github.com/c9s/bbgo/pkg/exchange/okex/okexapi"
 	"github.com/c9s/bbgo/pkg/exchange/retry"
+	"github.com/c9s/bbgo/pkg/fixedpoint"
 	"github.com/c9s/bbgo/pkg/types"
 )
 
@@ -255,12 +256,83 @@ func (s *Stream) handleOrderDetailsEvent(orderTrades []OrderTradeEvent) {
 	}
 }
 
+func (e *Stream) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders []okexapi.AlgoOrder, err error) {
+	instrumentID := toLocalSymbol(symbol)
+
+	for {
+		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
+		}
+
+		req := e.client.NewGetOCOAlgoOrdersRequest()
+		req.
+			InstrumentID(instrumentID)
+
+		params, _ := req.GetQueryParameters()
+		log.WithField("symbol", symbol).
+			WithField("params", params).
+			Debug("Stream#QueryAlgoOpenOrders_start")
+
+		orders, err = req.Do(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query open orders: %w", err)
+		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", orders).
+			Debug("Stream#QueryAlgoOpenOrders_result")
+
+		orderLen := len(orders)
+		// a defensive programming to ensure the length of order response is expected.
+		if orderLen > defaultQueryLimit {
+			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
+		}
+
+		if orderLen < defaultQueryLimit {
+			break
+		}
+	}
+
+	return orders, err
+}
+
 func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEvent) {
+
 	for _, positionDetail := range positionDetails {
 		position, err := positionDetail.toGlobalPosition()
 		if err != nil {
 			log.WithError(err).Errorf("error converting position details into positions")
 		} else {
+			orders, err := s.QueryAlgoOpenOrders(context.Background(), position.Symbol)
+			if err != nil {
+				log.WithError(err).Error("handlePositionDetailsEvent_QueryAlgoOpenOrders_error")
+			}
+
+			if len(orders) > 0 {
+				algoOrder := orders[0]
+
+				slTriggerPx, err := fixedpoint.NewFromString(algoOrder.SlTriggerPx)
+				if err != nil {
+					log.WithError(err).Error("handlePositionDetailsEvent_parse_SlTriggerPx_error")
+				} else {
+					position.SlTriggerPxType = algoOrder.SlTriggerPxType
+					position.SlOrdPx = algoOrder.SlOrdPx
+					position.SlTriggerPx = &slTriggerPx
+				}
+
+				tpTriggerPx, err := fixedpoint.NewFromString(algoOrder.TpTriggerPx)
+				if err != nil {
+					log.WithError(err).Error("handlePositionDetailsEvent_parse_TpTriggerPx_error")
+				} else {
+					position.TpTriggerPxType = algoOrder.TpTriggerPxType
+					position.TpOrdPx = algoOrder.TpOrdPx
+					position.TpTriggerPx = &tpTriggerPx
+				}
+			}
+
+			log.WithField("position", position).
+				Debug("handlePositionDetailsEvent")
+
 			s.EmitPositionUpdate(position)
 		}
 	}
