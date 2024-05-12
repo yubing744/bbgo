@@ -53,8 +53,8 @@ func (inc *RSI) Update(price float64) {
 		currentGain := math.Max(difference, 0)
 		currentLoss := -math.Min(difference, 0)
 
-		avgGain = (inc.PreviousAvgGain*13 + currentGain) / float64(inc.Window)
-		avgLoss = (inc.PreviousAvgLoss*13 + currentLoss) / float64(inc.Window)
+		avgGain = (inc.PreviousAvgGain*(float64(inc.Window)-1) + currentGain) / float64(inc.Window)
+		avgLoss = (inc.PreviousAvgLoss*(float64(inc.Window)-1) + currentLoss) / float64(inc.Window)
 	}
 
 	rs := avgGain / avgLoss
