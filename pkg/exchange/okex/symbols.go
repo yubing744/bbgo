@@ -526,5 +526,6 @@ var spotSymbolMap = map[string]string{
 	"PEPEUSDT":    "PEPE-USDT",
 	"TIAUSDT":     "TIA-USDT",
 	"JUPUSDT":     "JUP-USDT",
+	"SUIUSDT":     "SUI-USDT",
 }
 
