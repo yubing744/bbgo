@@ -527,5 +527,6 @@ var spotSymbolMap = map[string]string{
 	"TIAUSDT":     "TIA-USDT",
 	"JUPUSDT":     "JUP-USDT",
 	"SUIUSDT":     "SUI-USDT",
+	"TONUSDT":     "TON-USDT",
+	"NOTUSDT":     "NOT-USDT",
 }
-
