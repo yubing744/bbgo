@@ -283,11 +283,27 @@ func (p *Position) Update(pos PositionInfo) bool {
 		triggerPxUpdate = true
 	}
 
+	if pos.SlTriggerPx == nil && p.SlTriggerPx != nil {
+		p.SlTriggerPx = nil
+		p.SlTriggerPxType = ""
+		p.SlOrdPx = ""
+
+		triggerPxUpdate = true
+	}
+
 	if pos.TpTriggerPx != nil &&
 		(p.TpTriggerPx == nil || !p.TpTriggerPx.Eq(*pos.TpTriggerPx)) {
 		p.TpTriggerPx = pos.TpTriggerPx
 		p.TpTriggerPxType = pos.TpTriggerPxType
 		p.TpOrdPx = pos.TpOrdPx
+
+		triggerPxUpdate = true
+	}
+
+	if pos.TpTriggerPx == nil && p.TpTriggerPx != nil {
+		p.TpTriggerPx = nil
+		p.TpTriggerPxType = ""
+		p.TpOrdPx = ""
 
 		triggerPxUpdate = true
 	}
