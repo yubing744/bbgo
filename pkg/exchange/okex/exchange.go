@@ -1166,7 +1166,7 @@ func (e *Exchange) UpdatePosition(ctx context.Context, position *types.Position)
 	return e.PlaceTakeProfitAndStopLossOrder(ctx, position)
 }
 
-func (e *Exchange) QueryPosition(ctx context.Context, symbol string) (*types.PositionInfo, error) {
+func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types.PositionInfo, error) {
 	position := &types.PositionInfo{
 		Symbol: symbol,
 	}
