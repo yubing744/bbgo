@@ -645,6 +645,46 @@ func (e *Exchange) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (o
 	return orders, err
 }
 
+func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (orders []okexapi.AlgoOrder, err error) {
+	instrumentID := toLocalSymbol(symbol)
+
+	for {
+		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
+		}
+
+		req := e.client.NewGetOCOAlgoOrdersRequest()
+		req.
+			InstrumentID(instrumentID)
+
+		params, _ := req.GetQueryParameters()
+		log.WithField("symbol", symbol).
+			WithField("params", params).
+			Debug("Stream#QueryAlgoOpenOrders_start")
+
+		orders, err = req.Do(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query open orders: %w", err)
+		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", orders).
+			Debug("Stream#QueryAlgoOpenOrders_result")
+
+		orderLen := len(orders)
+		// a defensive programming to ensure the length of order response is expected.
+		if orderLen > defaultQueryLimit {
+			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
+		}
+
+		if orderLen < defaultQueryLimit {
+			break
+		}
+	}
+
+	return orders, err
+}
+
 func (e *Exchange) CancelOrders(ctx context.Context, orders ...types.Order) error {
 	if len(orders) == 0 {
 		return nil
@@ -1124,4 +1164,39 @@ func (e *Exchange) PlaceTakeProfitAndStopLossOrder(ctx context.Context, position
 func (e *Exchange) UpdatePosition(ctx context.Context, position *types.Position) error {
 	e.autoCancelAllAlgoOrders(ctx, position.Symbol)
 	return e.PlaceTakeProfitAndStopLossOrder(ctx, position)
+}
+
+func (e *Exchange) QueryPosition(ctx context.Context, symbol string) (*types.PositionInfo, error) {
+	position := &types.PositionInfo{
+		Symbol: symbol,
+	}
+
+	orders, err := e.QueryRawAlgoOpenOrders(context.Background(), symbol)
+	if err != nil {
+		log.WithError(err).Error("handlePositionDetailsEvent_QueryAlgoOpenOrders_error")
+	}
+
+	if len(orders) > 0 {
+		algoOrder := orders[0]
+
+		slTriggerPx, err := fixedpoint.NewFromString(algoOrder.SlTriggerPx)
+		if err != nil {
+			log.WithError(err).Error("handlePositionDetailsEvent_parse_SlTriggerPx_error")
+		} else {
+			position.SlTriggerPxType = algoOrder.SlTriggerPxType
+			position.SlOrdPx = algoOrder.SlOrdPx
+			position.SlTriggerPx = &slTriggerPx
+		}
+
+		tpTriggerPx, err := fixedpoint.NewFromString(algoOrder.TpTriggerPx)
+		if err != nil {
+			log.WithError(err).Error("handlePositionDetailsEvent_parse_TpTriggerPx_error")
+		} else {
+			position.TpTriggerPxType = algoOrder.TpTriggerPxType
+			position.TpOrdPx = algoOrder.TpOrdPx
+			position.TpTriggerPx = &tpTriggerPx
+		}
+	}
+
+	return position, nil
 }
