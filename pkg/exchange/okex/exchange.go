@@ -548,6 +548,7 @@ func (e *Exchange) QueryOpenOrders(ctx context.Context, symbol string) (orders [
 func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (orders []okexapi.AlgoOrder, err error) {
 	instrumentID := toLocalSymbol(symbol)
 
+	nextCursor := "0"
 	for {
 		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
@@ -555,23 +556,27 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 
 		req := e.client.NewGetAlgoOrdersRequest()
 		req.
-			InstrumentID(instrumentID)
+			InstrumentID(instrumentID).
+			After(nextCursor)
 
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
 			Debug("Exchange#QueryRawAlgoOpenOrders_start")
 
-		orders, err = req.Do(ctx)
+		openOrders, err := req.Do(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query open orders: %w", err)
 		}
 
+		orders = append(orders, openOrders...)
+
 		log.WithField("symbol", symbol).
-			WithField("openOrders", orders).
+			WithField("openOrders", openOrders).
+			WithField("orders", orders).
 			Debug("Exchange#QueryRawAlgoOpenOrders_result")
 
-		orderLen := len(orders)
+		orderLen := len(openOrders)
 		// a defensive programming to ensure the length of order response is expected.
 		if orderLen > defaultQueryLimit {
 			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
@@ -584,6 +589,8 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
 			Info("Exchange#QueryRawAlgoOpenOrders_retry")
+
+		nextCursor = openOrders[orderLen-1].AlgoID
 	}
 
 	return orders, err
@@ -592,6 +599,7 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders []types.Order, err error) {
 	instrumentID := toLocalSymbol(symbol)
 
+	nextCursor := "0"
 	for {
 		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
@@ -599,7 +607,8 @@ func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orde
 
 		req := e.client.NewGetAlgoOrdersRequest()
 		req.
-			InstrumentID(instrumentID)
+			InstrumentID(instrumentID).
+			After(nextCursor)
 
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
@@ -635,6 +644,8 @@ func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orde
 		if orderLen < defaultQueryLimit {
 			break
 		}
+
+		nextCursor = openOrders[orderLen-1].AlgoID
 	}
 
 	return orders, err
@@ -643,6 +654,7 @@ func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orde
 func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string) (orders []okexapi.AlgoOrder, err error) {
 	instrumentID := toLocalSymbol(symbol)
 
+	nextCursor := "0"
 	for {
 		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
@@ -650,23 +662,27 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 
 		req := e.client.NewGetOCOAlgoOrdersRequest()
 		req.
-			InstrumentID(instrumentID)
+			InstrumentID(instrumentID).
+			After(nextCursor)
 
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
 			Debug("Exchange#QueryRawOCOAlgoOpenOrders_start")
 
-		orders, err := req.Do(ctx)
+		openOrders, err := req.Do(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query open orders: %w", err)
 		}
 
+		orders = append(orders, openOrders...)
+
 		log.WithField("symbol", symbol).
-			WithField("openOrders", orders).
+			WithField("openOrders", openOrders).
+			WithField("orders", orders).
 			Debug("Exchange#QueryRawOCOAlgoOpenOrders_result")
 
-		orderLen := len(orders)
+		orderLen := len(openOrders)
 
 		// a defensive programming to ensure the length of order response is expected.
 		if orderLen > defaultQueryLimit {
@@ -680,6 +696,8 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
 			Debug("Exchange#QueryRawOCOAlgoOpenOrders_retry")
+
+		nextCursor = openOrders[orderLen-1].AlgoID
 	}
 
 	return orders, err
@@ -688,6 +706,7 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 func (e *Exchange) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (orders []types.Order, err error) {
 	instrumentID := toLocalSymbol(symbol)
 
+	nextCursor := "0"
 	for {
 		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
 			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
@@ -695,7 +714,8 @@ func (e *Exchange) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (o
 
 		req := e.client.NewGetOCOAlgoOrdersRequest()
 		req.
-			InstrumentID(instrumentID)
+			InstrumentID(instrumentID).
+			After(nextCursor)
 
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
@@ -729,6 +749,8 @@ func (e *Exchange) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (o
 		if orderLen < defaultQueryLimit {
 			break
 		}
+
+		nextCursor = openOrders[orderLen-1].AlgoID
 	}
 
 	return orders, err
@@ -1226,8 +1248,6 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 		return nil, errors.Wrap(err, "QueryPositionInfo_QueryRawAlgoOpenOrders_error")
 	}
 
-	time.Sleep(time.Second * 1)
-
 	ocoOrders, err := e.QueryRawOCOAlgoOpenOrders(context.Background(), symbol)
 	if err != nil {
 		log.WithError(err).Error("handlePositionDetailsEvent_QueryRawOCOAlgoOpenOrders_error")
@@ -1242,6 +1262,7 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 		slTriggerPx, err := fixedpoint.NewFromString(algoOrder.SlTriggerPx)
 		if err != nil {
 			log.WithError(err).Error("handlePositionDetailsEvent_parse_SlTriggerPx_error")
+			return nil, errors.Wrap(err, "handlePositionDetailsEvent_parse_SlTriggerPx_error")
 		} else {
 			position.SlTriggerPxType = algoOrder.SlTriggerPxType
 			position.SlOrdPx = algoOrder.SlOrdPx
@@ -1251,6 +1272,7 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 		tpTriggerPx, err := fixedpoint.NewFromString(algoOrder.TpTriggerPx)
 		if err != nil {
 			log.WithError(err).Error("handlePositionDetailsEvent_parse_TpTriggerPx_error")
+			return nil, errors.Wrap(err, "handlePositionDetailsEvent_parse_TpTriggerPx_error")
 		} else {
 			position.TpTriggerPxType = algoOrder.TpTriggerPxType
 			position.TpOrdPx = algoOrder.TpOrdPx
