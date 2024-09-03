@@ -1223,13 +1223,15 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 	orders, err := e.QueryRawAlgoOpenOrders(context.Background(), symbol)
 	if err != nil {
 		log.WithError(err).Error("handlePositionDetailsEvent_QueryRawAlgoOpenOrders_error")
+		return nil, errors.Wrap(err, "QueryPositionInfo_QueryRawAlgoOpenOrders_error")
 	}
 
-	time.Sleep(time.Second)
+	time.Sleep(time.Second * 1)
 
 	ocoOrders, err := e.QueryRawOCOAlgoOpenOrders(context.Background(), symbol)
 	if err != nil {
 		log.WithError(err).Error("handlePositionDetailsEvent_QueryRawOCOAlgoOpenOrders_error")
+		return nil, errors.Wrap(err, "QueryPositionInfo_QueryRawOCOAlgoOpenOrders_error")
 	}
 
 	orders = append(orders, ocoOrders...)

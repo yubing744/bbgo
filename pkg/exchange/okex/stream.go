@@ -389,7 +389,7 @@ func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEven
 
 			log.WithField("position", position).
 				WithField("orders", orders).
-				Info("handlePositionDetailsEvent")
+				Debug("handlePositionDetailsEvent")
 
 			s.EmitPositionUpdate(position)
 		}
