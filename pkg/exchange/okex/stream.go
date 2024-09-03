@@ -296,6 +296,48 @@ func (e *Stream) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders
 	return orders, err
 }
 
+func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (orders []okexapi.AlgoOrder, err error) {
+	instrumentID := toLocalSymbol(symbol)
+
+	for {
+		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
+		}
+
+		req := e.client.NewGetOCOAlgoOrdersRequest()
+		req.
+			InstrumentID(instrumentID)
+
+		params, _ := req.GetQueryParameters()
+		log.WithField("symbol", symbol).
+			WithField("params", params).
+			Info("QueryOCOAlgoOpenOrders_start")
+
+		openOrders, err := req.Do(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query open orders: %w", err)
+		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", openOrders).
+			Info("QueryOCOAlgoOpenOrders_result")
+
+		orders = append(orders, openOrders...)
+
+		orderLen := len(openOrders)
+		// a defensive programming to ensure the length of order response is expected.
+		if orderLen > defaultQueryLimit {
+			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
+		}
+
+		if orderLen < defaultQueryLimit {
+			break
+		}
+	}
+
+	return orders, err
+}
+
 func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEvent) {
 
 	for _, positionDetail := range positionDetails {
@@ -307,6 +349,13 @@ func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEven
 			if err != nil {
 				log.WithError(err).Error("handlePositionDetailsEvent_QueryAlgoOpenOrders_error")
 			}
+
+			ocoOrders, err := s.QueryOCOAlgoOpenOrders(context.Background(), position.Symbol)
+			if err != nil {
+				log.WithError(err).Error("handlePositionDetailsEvent_QueryAlgoOpenOrders_error")
+			}
+
+			orders = append(orders, ocoOrders...)
 
 			if len(orders) > 0 {
 				algoOrder := orders[0]
