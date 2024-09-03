@@ -611,20 +611,19 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Info("QueryOCOAlgoOpenOrders_start")
+			Info("Exchange#QueryOCOAlgoOpenOrders_start")
 
-		openOrders, err := req.Do(ctx)
+		orders, err := req.Do(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query open orders: %w", err)
 		}
 
 		log.WithField("symbol", symbol).
-			WithField("openOrders", openOrders).
-			Info("QueryOCOAlgoOpenOrders_result")
+			WithField("openOrders", orders).
+			Info("Exchange#QueryOCOAlgoOpenOrders_result")
 
-		orders = append(orders, openOrders...)
+		orderLen := len(orders)
 
-		orderLen := len(openOrders)
 		// a defensive programming to ensure the length of order response is expected.
 		if orderLen > defaultQueryLimit {
 			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
@@ -633,6 +632,10 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 		if orderLen < defaultQueryLimit {
 			break
 		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", orders).
+			Info("Exchange#QueryOCOAlgoOpenOrders_retry")
 	}
 
 	return orders, err
@@ -702,7 +705,7 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Debug("Stream#QueryAlgoOpenOrders_start")
+			Debug("Exchange#QueryAlgoOpenOrders_start")
 
 		orders, err = req.Do(ctx)
 		if err != nil {
@@ -711,7 +714,7 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Debug("Stream#QueryAlgoOpenOrders_result")
+			Debug("Exchange#QueryAlgoOpenOrders_result")
 
 		orderLen := len(orders)
 		// a defensive programming to ensure the length of order response is expected.
@@ -722,6 +725,10 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 		if orderLen < defaultQueryLimit {
 			break
 		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", orders).
+			Info("Exchange#QueryAlgoOpenOrders_retry")
 	}
 
 	return orders, err
@@ -1215,12 +1222,12 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 
 	orders, err := e.QueryRawAlgoOpenOrders(context.Background(), symbol)
 	if err != nil {
-		log.WithError(err).Error("handlePositionDetailsEvent_QueryAlgoOpenOrders_error")
+		log.WithError(err).Error("handlePositionDetailsEvent_QueryRawAlgoOpenOrders_error")
 	}
 
-	ocoOrders, err := e.QueryRawOCOAlgoOpenOrders(context.Background(), position.Symbol)
+	ocoOrders, err := e.QueryRawOCOAlgoOpenOrders(context.Background(), symbol)
 	if err != nil {
-		log.WithError(err).Error("handlePositionDetailsEvent_QueryAlgoOpenOrders_error")
+		log.WithError(err).Error("handlePositionDetailsEvent_QueryRawOCOAlgoOpenOrders_error")
 	}
 
 	orders = append(orders, ocoOrders...)

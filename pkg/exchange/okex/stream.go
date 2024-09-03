@@ -291,6 +291,10 @@ func (e *Stream) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders
 		if orderLen < defaultQueryLimit {
 			break
 		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", orders).
+			Debug("Stream#QueryAlgoOpenOrders_retry")
 	}
 
 	return orders, err
@@ -311,7 +315,7 @@ func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (ord
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Info("QueryOCOAlgoOpenOrders_start")
+			Info("Stream#QueryOCOAlgoOpenOrders_start")
 
 		openOrders, err := req.Do(ctx)
 		if err != nil {
@@ -320,7 +324,7 @@ func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (ord
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", openOrders).
-			Info("QueryOCOAlgoOpenOrders_result")
+			Info("Stream#QueryOCOAlgoOpenOrders_result")
 
 		orders = append(orders, openOrders...)
 
@@ -333,6 +337,10 @@ func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (ord
 		if orderLen < defaultQueryLimit {
 			break
 		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", openOrders).
+			Info("Stream#QueryOCOAlgoOpenOrders_retry")
 	}
 
 	return orders, err
