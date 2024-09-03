@@ -315,7 +315,7 @@ func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (ord
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Info("Stream#QueryOCOAlgoOpenOrders_start")
+			Debug("Stream#QueryOCOAlgoOpenOrders_start")
 
 		orders, err := req.Do(ctx)
 		if err != nil {
@@ -324,7 +324,7 @@ func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (ord
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("Stream#QueryOCOAlgoOpenOrders_result")
+			Debug("Stream#QueryOCOAlgoOpenOrders_result")
 
 		orderLen := len(orders)
 		// a defensive programming to ensure the length of order response is expected.
@@ -338,7 +338,7 @@ func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (ord
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("Stream#QueryOCOAlgoOpenOrders_retry")
+			Debug("Stream#QueryOCOAlgoOpenOrders_retry")
 	}
 
 	return orders, err
@@ -389,7 +389,7 @@ func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEven
 
 			log.WithField("position", position).
 				WithField("orders", orders).
-				Debug("handlePositionDetailsEvent")
+				Info("handlePositionDetailsEvent")
 
 			s.EmitPositionUpdate(position)
 		}

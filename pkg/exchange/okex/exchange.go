@@ -655,7 +655,7 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Info("Exchange#QueryRawOCOAlgoOpenOrders_start")
+			Debug("Exchange#QueryRawOCOAlgoOpenOrders_start")
 
 		orders, err := req.Do(ctx)
 		if err != nil {
@@ -664,7 +664,7 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("Exchange#QueryRawOCOAlgoOpenOrders_result")
+			Debug("Exchange#QueryRawOCOAlgoOpenOrders_result")
 
 		orderLen := len(orders)
 
@@ -679,7 +679,7 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("Exchange#QueryRawOCOAlgoOpenOrders_retry")
+			Debug("Exchange#QueryRawOCOAlgoOpenOrders_retry")
 	}
 
 	return orders, err
@@ -1259,7 +1259,7 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 	log.WithField("symbol", symbol).
 		WithField("position", position).
 		WithField("orders", orders).
-		Debug("Exchange#QueryPositionInfo_result")
+		Info("Exchange#QueryPositionInfo_result")
 
 	return position, nil
 }
