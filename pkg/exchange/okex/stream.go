@@ -264,7 +264,7 @@ func (e *Stream) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders
 			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
 		}
 
-		req := e.client.NewGetOCOAlgoOrdersRequest()
+		req := e.client.NewGetAlgoOrdersRequest()
 		req.
 			InstrumentID(instrumentID)
 
@@ -356,6 +356,8 @@ func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEven
 				log.WithError(err).Error("handlePositionDetailsEvent_QueryAlgoOpenOrders_error")
 			}
 
+			time.Sleep(time.Second)
+
 			ocoOrders, err := s.QueryOCOAlgoOpenOrders(context.Background(), position.Symbol)
 			if err != nil {
 				log.WithError(err).Error("handlePositionDetailsEvent_QueryAlgoOpenOrders_error")
@@ -386,6 +388,7 @@ func (s *Stream) handlePositionDetailsEvent(positionDetails []PositionUpdateEven
 			}
 
 			log.WithField("position", position).
+				WithField("orders", orders).
 				Debug("handlePositionDetailsEvent")
 
 			s.EmitPositionUpdate(position)

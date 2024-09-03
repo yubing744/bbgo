@@ -545,6 +545,50 @@ func (e *Exchange) QueryOpenOrders(ctx context.Context, symbol string) (orders [
 	return orders, err
 }
 
+func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (orders []okexapi.AlgoOrder, err error) {
+	instrumentID := toLocalSymbol(symbol)
+
+	for {
+		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
+		}
+
+		req := e.client.NewGetAlgoOrdersRequest()
+		req.
+			InstrumentID(instrumentID)
+
+		params, _ := req.GetQueryParameters()
+		log.WithField("symbol", symbol).
+			WithField("params", params).
+			Debug("Exchange#QueryRawAlgoOpenOrders_start")
+
+		orders, err = req.Do(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query open orders: %w", err)
+		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", orders).
+			Debug("Exchange#QueryRawAlgoOpenOrders_result")
+
+		orderLen := len(orders)
+		// a defensive programming to ensure the length of order response is expected.
+		if orderLen > defaultQueryLimit {
+			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
+		}
+
+		if orderLen < defaultQueryLimit {
+			break
+		}
+
+		log.WithField("symbol", symbol).
+			WithField("openOrders", orders).
+			Info("Exchange#QueryRawAlgoOpenOrders_retry")
+	}
+
+	return orders, err
+}
+
 func (e *Exchange) QueryAlgoOpenOrders(ctx context.Context, symbol string) (orders []types.Order, err error) {
 	instrumentID := toLocalSymbol(symbol)
 
@@ -685,50 +729,6 @@ func (e *Exchange) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (o
 		if orderLen < defaultQueryLimit {
 			break
 		}
-	}
-
-	return orders, err
-}
-
-func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (orders []okexapi.AlgoOrder, err error) {
-	instrumentID := toLocalSymbol(symbol)
-
-	for {
-		if err := queryAlgoOpenOrderLimiter.Wait(ctx); err != nil {
-			return nil, fmt.Errorf("query open orders rate limiter wait error: %w", err)
-		}
-
-		req := e.client.NewGetOCOAlgoOrdersRequest()
-		req.
-			InstrumentID(instrumentID)
-
-		params, _ := req.GetQueryParameters()
-		log.WithField("symbol", symbol).
-			WithField("params", params).
-			Debug("Exchange#QueryRawAlgoOpenOrders_start")
-
-		orders, err = req.Do(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query open orders: %w", err)
-		}
-
-		log.WithField("symbol", symbol).
-			WithField("openOrders", orders).
-			Debug("Exchange#QueryRawAlgoOpenOrders_result")
-
-		orderLen := len(orders)
-		// a defensive programming to ensure the length of order response is expected.
-		if orderLen > defaultQueryLimit {
-			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
-		}
-
-		if orderLen < defaultQueryLimit {
-			break
-		}
-
-		log.WithField("symbol", symbol).
-			WithField("openOrders", orders).
-			Info("Exchange#QueryRawAlgoOpenOrders_retry")
 	}
 
 	return orders, err
@@ -1225,6 +1225,8 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 		log.WithError(err).Error("handlePositionDetailsEvent_QueryRawAlgoOpenOrders_error")
 	}
 
+	time.Sleep(time.Second)
+
 	ocoOrders, err := e.QueryRawOCOAlgoOpenOrders(context.Background(), symbol)
 	if err != nil {
 		log.WithError(err).Error("handlePositionDetailsEvent_QueryRawOCOAlgoOpenOrders_error")
@@ -1256,6 +1258,7 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 
 	log.WithField("symbol", symbol).
 		WithField("position", position).
+		WithField("orders", orders).
 		Debug("Exchange#QueryPositionInfo_result")
 
 	return position, nil
