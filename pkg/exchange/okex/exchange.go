@@ -611,7 +611,7 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Info("Exchange#QueryOCOAlgoOpenOrders_start")
+			Info("Exchange#QueryRawOCOAlgoOpenOrders_start")
 
 		orders, err := req.Do(ctx)
 		if err != nil {
@@ -620,7 +620,7 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("Exchange#QueryOCOAlgoOpenOrders_result")
+			Info("Exchange#QueryRawOCOAlgoOpenOrders_result")
 
 		orderLen := len(orders)
 
@@ -635,7 +635,7 @@ func (e *Exchange) QueryRawOCOAlgoOpenOrders(ctx context.Context, symbol string)
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("Exchange#QueryOCOAlgoOpenOrders_retry")
+			Info("Exchange#QueryRawOCOAlgoOpenOrders_retry")
 	}
 
 	return orders, err
@@ -705,7 +705,7 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 		params, _ := req.GetQueryParameters()
 		log.WithField("symbol", symbol).
 			WithField("params", params).
-			Debug("Exchange#QueryAlgoOpenOrders_start")
+			Debug("Exchange#QueryRawAlgoOpenOrders_start")
 
 		orders, err = req.Do(ctx)
 		if err != nil {
@@ -714,7 +714,7 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Debug("Exchange#QueryAlgoOpenOrders_result")
+			Debug("Exchange#QueryRawAlgoOpenOrders_result")
 
 		orderLen := len(orders)
 		// a defensive programming to ensure the length of order response is expected.
@@ -728,7 +728,7 @@ func (e *Exchange) QueryRawAlgoOpenOrders(ctx context.Context, symbol string) (o
 
 		log.WithField("symbol", symbol).
 			WithField("openOrders", orders).
-			Info("Exchange#QueryAlgoOpenOrders_retry")
+			Info("Exchange#QueryRawAlgoOpenOrders_retry")
 	}
 
 	return orders, err
@@ -1253,6 +1253,10 @@ func (e *Exchange) QueryPositionInfo(ctx context.Context, symbol string) (*types
 			position.TpTriggerPx = &tpTriggerPx
 		}
 	}
+
+	log.WithField("symbol", symbol).
+		WithField("position", position).
+		Debug("Exchange#QueryPositionInfo_result")
 
 	return position, nil
 }

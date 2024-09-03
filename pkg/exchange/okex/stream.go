@@ -317,18 +317,16 @@ func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (ord
 			WithField("params", params).
 			Info("Stream#QueryOCOAlgoOpenOrders_start")
 
-		openOrders, err := req.Do(ctx)
+		orders, err := req.Do(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query open orders: %w", err)
 		}
 
 		log.WithField("symbol", symbol).
-			WithField("openOrders", openOrders).
+			WithField("openOrders", orders).
 			Info("Stream#QueryOCOAlgoOpenOrders_result")
 
-		orders = append(orders, openOrders...)
-
-		orderLen := len(openOrders)
+		orderLen := len(orders)
 		// a defensive programming to ensure the length of order response is expected.
 		if orderLen > defaultQueryLimit {
 			return nil, fmt.Errorf("unexpected open orders length %d", orderLen)
@@ -339,7 +337,7 @@ func (e *Stream) QueryOCOAlgoOpenOrders(ctx context.Context, symbol string) (ord
 		}
 
 		log.WithField("symbol", symbol).
-			WithField("openOrders", openOrders).
+			WithField("openOrders", orders).
 			Info("Stream#QueryOCOAlgoOpenOrders_retry")
 	}
 
