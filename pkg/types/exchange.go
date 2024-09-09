@@ -157,6 +157,7 @@ type ExchangeRewardService interface {
 }
 
 type ExchangePositionUpdateService interface {
+	QueryPositionInfo(ctx context.Context, symbol string) (*PositionInfo, error)
 	UpdatePosition(ctx context.Context, position *Position) error
 }
 
