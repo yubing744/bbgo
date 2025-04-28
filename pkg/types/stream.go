@@ -2,6 +2,7 @@ package types
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
 	"sync"
@@ -415,7 +416,7 @@ func (s *StandardStream) Connect(ctx context.Context) error {
 	}
 	err := s.DialAndConnect(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("can not connect to websocket server: %w", err)
 	}
 
 	// start one re-connector goroutine with the base context

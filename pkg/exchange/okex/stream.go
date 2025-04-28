@@ -120,10 +120,10 @@ func (s *Stream) Unsubscribe() {
 
 func (s *Stream) Connect(ctx context.Context) error {
 	if err := s.StandardStream.Connect(ctx); err != nil {
-		return err
+		return fmt.Errorf("failed to connect to standard stream: %w", err)
 	}
 	if err := s.kLineStream.Connect(ctx); err != nil {
-		return err
+		return fmt.Errorf("failed to connect to kline stream: %w", err)
 	}
 	return nil
 }
@@ -153,6 +153,8 @@ func subscribe(conn *websocket.Conn, subs []WebsocketSubscription) {
 }
 
 func (s *Stream) handleConnect() {
+	log.Infof("Stream handleConnect")
+
 	if s.PublicOnly {
 		var subs []WebsocketSubscription
 		for _, subscription := range s.Subscriptions {
