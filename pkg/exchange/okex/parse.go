@@ -36,7 +36,7 @@ func parseWebSocketEvent(in []byte) (interface{}, error) {
 	var event WebSocketEvent
 	err := json.Unmarshal(in, &event)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to unmarshal data into WebSocketEvent, err: %w", err)
 	}
 	if event.Event != "" {
 		return &event, nil
