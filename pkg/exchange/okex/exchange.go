@@ -413,18 +413,38 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 		orderReq.OrderType(orderType)
 	}
 
-	// Set stop loss trigger price
-	if order.StopPrice.Compare(fixedpoint.Zero) > 0 {
-		orderReq.StopLossTriggerPxType("last")
-		orderReq.StopLossTriggerPx(order.Market.FormatPrice(order.StopPrice))
-		orderReq.StopLossOrdPx("-1")
-	}
+	// Use attachAlgoOrds for stop loss and take profit (new OKX API method)
+	// This replaces the deprecated direct TP/SL parameters
+	if order.StopPrice.Compare(fixedpoint.Zero) > 0 || order.TakePrice.Compare(fixedpoint.Zero) > 0 {
+		attachAlgo := okexapi.AttachAlgoOrder{}
 
-	// Set take profit trigger price
-	if order.TakePrice.Compare(fixedpoint.Zero) > 0 {
-		orderReq.TakeProfitTriggerPxType("last")
-		orderReq.TakeProfitTriggerPx(order.Market.FormatPrice(order.TakePrice))
-		orderReq.TakeProfitOrdPx("-1")
+		// Get the order size for the attached algo order
+		var size string
+		if order.Market.Symbol != "" {
+			size = order.Market.FormatQuantity(order.Quantity)
+		} else {
+			size = order.Quantity.FormatString(8)
+		}
+		attachAlgo.Sz = size
+
+		// Set stop loss parameters if provided
+		if order.StopPrice.Compare(fixedpoint.Zero) > 0 {
+			attachAlgo.SlTriggerPx = order.Market.FormatPrice(order.StopPrice)
+			attachAlgo.SlOrdPx = "-1" // Market order execution
+			attachAlgo.SlTriggerPxType = "last"
+		}
+
+		// Set take profit parameters if provided
+		if order.TakePrice.Compare(fixedpoint.Zero) > 0 {
+			attachAlgo.TpTriggerPx = order.Market.FormatPrice(order.TakePrice)
+			attachAlgo.TpOrdPx = "-1" // Market order execution
+			attachAlgo.TpTriggerPxType = "last"
+		}
+
+		orderReq.AttachAlgoOrds([]okexapi.AttachAlgoOrder{attachAlgo})
+
+		log.WithField("attachAlgoOrds", attachAlgo).
+			Info("submitMarginOrder_with_attachAlgoOrds")
 	}
 
 	params, _ := orderReq.GetParameters()

@@ -95,6 +95,50 @@ type PlaceOrderRequest struct {
 	// Only applicable to SPOT Market Orders
 	// Default is quote_ccy for buy, base_ccy for sell
 	targetCurrency *TargetCurrency `param:"tgtCcy" validValues:"quote_ccy,base_ccy"`
+
+	// TP/SL information attached when placing order
+	// Applicable to Spot Mode/Spot lead trading/Buy or sell FUTURES/SWAP on derivatives App.
+	attachAlgoOrds []AttachAlgoOrder `param:"attachAlgoOrds,omitempty"`
+}
+
+// AttachAlgoOrder represents a take-profit or stop-loss order attached to the main order
+type AttachAlgoOrder struct {
+	// Client-supplied Algo ID for the attached TP/SL order
+	// A combination of case-sensitive alphanumerics, all numbers, or all letters of up to 32 characters.
+	AttachAlgoClOrdId string `json:"attachAlgoClOrdId,omitempty"`
+
+	// Take-profit trigger price
+	// If the price is -1, the tp will be executed at the market price.
+	TpTriggerPx string `json:"tpTriggerPx,omitempty"`
+
+	// Take-profit order price
+	// If the price is -1, the tp will be executed at the market price.
+	TpOrdPx string `json:"tpOrdPx,omitempty"`
+
+	// Take-profit trigger price type
+	// last: last price
+	// index: index price
+	// mark: mark price
+	// Default is last
+	TpTriggerPxType string `json:"tpTriggerPxType,omitempty"`
+
+	// Stop-loss trigger price
+	// If the price is -1, the sl will be executed at the market price.
+	SlTriggerPx string `json:"slTriggerPx,omitempty"`
+
+	// Stop-loss order price
+	// If the price is -1, the sl will be executed at the market price.
+	SlOrdPx string `json:"slOrdPx,omitempty"`
+
+	// Stop-loss trigger price type
+	// last: last price
+	// index: index price
+	// mark: mark price
+	// Default is last
+	SlTriggerPxType string `json:"slTriggerPxType,omitempty"`
+
+	// Order quantity for the attached TP/SL order
+	Sz string `json:"sz,omitempty"`
 }
 
 func (c *RestClient) NewPlaceOrderRequest() *PlaceOrderRequest {
@@ -102,4 +146,10 @@ func (c *RestClient) NewPlaceOrderRequest() *PlaceOrderRequest {
 		client:    c,
 		tradeMode: TradeModeCash,
 	}
+}
+
+// AttachAlgoOrds sets the attached algo orders (TP/SL) for the order
+func (p *PlaceOrderRequest) AttachAlgoOrds(attachAlgoOrds []AttachAlgoOrder) *PlaceOrderRequest {
+	p.attachAlgoOrds = attachAlgoOrds
+	return p
 }
