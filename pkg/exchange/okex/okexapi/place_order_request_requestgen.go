@@ -277,6 +277,12 @@ func (p *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 	} else {
 	}
 
+	// MANUAL ADDITION: Add attachAlgoOrds array parameter
+	// This is manually added to support TP/SL orders via attachAlgoOrds (OKX API v5 requirement)
+	if len(p.attachAlgoOrds) > 0 {
+		params["attachAlgoOrds"] = p.attachAlgoOrds
+	}
+
 	return params, nil
 }
 
