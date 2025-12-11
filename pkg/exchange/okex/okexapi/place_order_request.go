@@ -107,6 +107,9 @@ type AttachAlgoOrder struct {
 	// A combination of case-sensitive alphanumerics, all numbers, or all letters of up to 32 characters.
 	AttachAlgoClOrdId string `json:"attachAlgoClOrdId,omitempty"`
 
+	// Whether the attached order is reduce-only to avoid opening an opposite position
+	ReduceOnly bool `json:"reduceOnly,omitempty"`
+
 	// Take-profit trigger price
 	// If the price is -1, the tp will be executed at the market price.
 	TpTriggerPx string `json:"tpTriggerPx,omitempty"`

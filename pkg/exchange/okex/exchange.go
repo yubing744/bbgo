@@ -426,6 +426,7 @@ func (e *Exchange) submitMarginOrder(ctx context.Context, order types.SubmitOrde
 			size = order.Quantity.FormatString(8)
 		}
 		attachAlgo.Sz = size
+		attachAlgo.ReduceOnly = true
 
 		// Set stop loss parameters if provided
 		if order.StopPrice.Compare(fixedpoint.Zero) > 0 {

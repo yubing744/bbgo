@@ -277,6 +277,14 @@ func (p *PlaceOrderRequest) GetParameters() (map[string]interface{}, error) {
 	} else {
 	}
 
+	// check attachAlgoOrds field -> json key attachAlgoOrds
+	if len(p.attachAlgoOrds) > 0 {
+		attachAlgoOrds := p.attachAlgoOrds
+
+		// assign parameter of attachAlgoOrds
+		params["attachAlgoOrds"] = attachAlgoOrds
+	}
+
 	return params, nil
 }
 
