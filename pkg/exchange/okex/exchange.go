@@ -1216,7 +1216,10 @@ func (e *Exchange) PlaceTakeProfitAndStopLossOrder(ctx context.Context, position
 
 	if position.IsLong() {
 		orderReq.Side("sell")
-		orderReq.Sz(position.Market.FormatQuantity(position.Quote.Abs()))
+		// sz for the sell leg is in base currency; sizing it from the quote
+		// value oversells whenever |quote| > base (flipping the account into
+		// an unintended short) and undersells otherwise (leaving dust).
+		orderReq.Sz(position.Market.FormatQuantity(position.Base.Abs()))
 	} else if position.IsShort() {
 		orderReq.Side("buy")
 		orderReq.Sz(position.Market.FormatQuantity(position.Base.Abs()))
