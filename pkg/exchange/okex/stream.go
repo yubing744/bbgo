@@ -20,6 +20,12 @@ var (
 	// pingInterval the connection will break automatically if the subscription is not established or data has not been
 	// pushed for more than 30 seconds. Therefore, we set it to 20 seconds.
 	pingInterval = 20 * time.Second
+	// serviceUpgradeReconnectInterval throttles proactive reconnects triggered by OKX
+	// `notice` (code 64008) service-upgrade frames. OKX performs an upgrade roughly every
+	// 15-20 minutes and only sends the notice ~30s before closing, so at most one proactive
+	// reconnect per 30s window is required. This guards against a reconnect storm if the
+	// notice is delivered repeatedly.
+	serviceUpgradeReconnectInterval = 30 * time.Second
 )
 
 type WebsocketOp struct {
@@ -42,6 +48,11 @@ type Stream struct {
 	client          *okexapi.RestClient
 	balanceProvider types.ExchangeAccountService
 
+	// reconnectLimiter throttles proactive reconnects triggered by OKX service-upgrade
+	// notices. It is per-stream so the public and private streams throttle independently
+	// (each receives its own notice on its own connection).
+	reconnectLimiter *rate.Limiter
+
 	// public callbacks
 	kLineEventCallbacks       []func(candle KLineEvent)
 	bookEventCallbacks        []func(book BookEvent)
@@ -52,10 +63,11 @@ type Stream struct {
 
 func NewStream(client *okexapi.RestClient, balanceProvider types.ExchangeAccountService) *Stream {
 	stream := &Stream{
-		client:          client,
-		balanceProvider: balanceProvider,
-		StandardStream:  types.NewStandardStream(),
-		kLineStream:     NewKLineStream(),
+		client:           client,
+		balanceProvider:  balanceProvider,
+		StandardStream:   types.NewStandardStream(),
+		kLineStream:      NewKLineStream(),
+		reconnectLimiter: rate.NewLimiter(rate.Every(serviceUpgradeReconnectInterval), 1),
 	}
 
 	stream.SetParser(parseWebSocketEvent)
@@ -297,6 +309,19 @@ func (s *Stream) dispatchEvent(e interface{}) {
 			log.Errorf("invalid event: %v", err)
 			return
 		}
+
+		switch et.Event {
+		case WsEventTypeChannelConnCount, WsEventTypeChannelConnCountError:
+			log.Infof("okex channel connection count update: event=%s channel=%s connCount=%s connId=%s",
+				et.Event, et.ConnChan, et.ConnCount, et.ConnId)
+
+		case WsEventTypeNotice:
+			log.Infof("okex notice: code=%s msg=%q connId=%s", et.Code, et.Message, et.ConnId)
+			if et.IsServiceUpgradeNotice() {
+				s.handleServiceUpgradeNotice()
+			}
+		}
+
 		if et.IsAuthenticated() {
 			s.EmitAuth()
 		}
@@ -318,4 +343,30 @@ func (s *Stream) dispatchEvent(e interface{}) {
 		s.EmitMarketTradeEvent(et)
 
 	}
+}
+
+// handleServiceUpgradeNotice proactively reconnects the stream when OKX signals an upcoming
+// service upgrade (notice code 64008). OKX sends this ~30s before it force-closes the
+// connection (close 1006); reconnecting now lets the existing StandardStream reconnector
+// dial a fresh connection and re-subscribe ahead of the server-side close, avoiding the
+// kline gap that would otherwise appear during the post-close reconnect cool-down.
+//
+// This is safe against reconnect storms because:
+//   - StandardStream.Reconnect() only signals a buffered(1) channel with a non-blocking
+//     send, so repeated calls while a reconnect is already pending are coalesced/dropped.
+//   - reconnectLimiter additionally caps proactive reconnects to one per
+//     serviceUpgradeReconnectInterval, so a burst of notices cannot trigger repeated
+//     reconnects.
+//
+// It also does not conflict with the existing 20s ping keep-alive or handleConnect
+// re-subscription: those continue to run normally, and handleConnect performs the
+// re-subscription on the new connection this reconnect creates.
+func (s *Stream) handleServiceUpgradeNotice() {
+	if s.reconnectLimiter != nil && !s.reconnectLimiter.Allow() {
+		log.Warnf("okex service-upgrade notice (code %s) received but a proactive reconnect was already triggered recently; skipping to avoid reconnect storm", okexServiceUpgradeNoticeCode)
+		return
+	}
+
+	log.Warnf("okex service-upgrade notice (code %s) received; proactively reconnecting before the server closes the connection", okexServiceUpgradeNoticeCode)
+	s.Reconnect()
 }

@@ -103,7 +103,22 @@ const (
 	WsEventTypeError       = "error"
 	WsEventTypeSubscribe   = "subscribe"
 	WsEventTypeUnsubscribe = "unsubscribe"
+	// WsEventTypeChannelConnCount and WsEventTypeChannelConnCountError are informational
+	// control frames OKX pushes to report the number of connections per channel.
+	// See: https://www.okx.com/docs-v5/en/#websocket-api-connection-count-limit
+	WsEventTypeChannelConnCount      = "channel-conn-count"
+	WsEventTypeChannelConnCountError = "channel-conn-count-error"
+	// WsEventTypeNotice is a control frame OKX pushes to notify the client about connection
+	// lifecycle events, e.g. an upcoming service upgrade (code 64008).
+	WsEventTypeNotice = "notice"
 )
+
+// okexServiceUpgradeNoticeCode is the code carried by a `notice` event that OKX sends ~30s
+// before it proactively closes the connection for a service upgrade. When we see it we
+// reconnect ahead of the server-side close to avoid the gap otherwise caused by the
+// close(1006) + reconnect cool-down.
+// See: https://www.okx.com/docs-v5/en/#websocket-api-connection-count-limit
+const okexServiceUpgradeNoticeCode = "64008"
 
 type WebSocketEvent struct {
 	Event   WsEventType `json:"event"`
@@ -115,6 +130,13 @@ type WebSocketEvent struct {
 	} `json:"arg,omitempty"`
 	Data       json.RawMessage `json:"data"`
 	ActionType ActionType      `json:"action"`
+
+	// The following fields are only present on control frames such as
+	// `channel-conn-count`, `channel-conn-count-error` and `notice`.
+	// For these frames `channel` is at the top level rather than inside `arg`.
+	ConnCount string  `json:"connCount,omitempty"`
+	ConnId    string  `json:"connId,omitempty"`
+	ConnChan  Channel `json:"channel,omitempty"`
 }
 
 func (w *WebSocketEvent) IsValid() error {
@@ -123,6 +145,11 @@ func (w *WebSocketEvent) IsValid() error {
 		return fmt.Errorf("websocket request error, code: %s, msg: %s", w.Code, w.Message)
 
 	case WsEventTypeSubscribe, WsEventTypeUnsubscribe:
+		return nil
+
+	case WsEventTypeChannelConnCount, WsEventTypeChannelConnCountError, WsEventTypeNotice:
+		// Informational control frames. They are valid and handled (logged / acted on)
+		// in the stream dispatcher, not treated as errors.
 		return nil
 
 	case WsEventTypeLogin:
@@ -140,6 +167,13 @@ func (w *WebSocketEvent) IsValid() error {
 
 func (w *WebSocketEvent) IsAuthenticated() bool {
 	return w.Event == WsEventTypeLogin && w.Code == "0"
+}
+
+// IsServiceUpgradeNotice reports whether this event is the OKX pre-upgrade notice (code 64008),
+// which signals that the connection will soon be closed for a service upgrade and that the
+// client should reconnect proactively.
+func (w *WebSocketEvent) IsServiceUpgradeNotice() bool {
+	return w.Event == WsEventTypeNotice && w.Code == okexServiceUpgradeNoticeCode
 }
 
 type BookEvent struct {

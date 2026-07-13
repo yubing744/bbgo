@@ -805,6 +805,7 @@ func TestWebSocketEvent_IsValid(t *testing.T) {
 			Event:   WsEventTypeLogin,
 			Code:    "0",
 			Message: "",
+			ConnId:  "a4d3ae55",
 		}, *opEvent)
 
 		assert.NoError(t, opEvent.IsValid())
@@ -825,6 +826,7 @@ func TestWebSocketEvent_IsValid(t *testing.T) {
 			Event:   WsEventTypeError,
 			Code:    "60009",
 			Message: "Login failed.",
+			ConnId:  "a4d3ae55",
 		}, *opEvent)
 
 		assert.ErrorContains(t, opEvent.IsValid(), "request error")
@@ -845,10 +847,114 @@ func TestWebSocketEvent_IsValid(t *testing.T) {
 			Event:   "test gg",
 			Code:    "60009",
 			Message: "unexpected",
+			ConnId:  "a4d3ae55",
 		}, *opEvent)
 
 		assert.ErrorContains(t, opEvent.IsValid(), "unexpected event type")
 	})
+
+	t.Run("channel-conn-count event", func(t *testing.T) {
+		input := `{
+  "event": "channel-conn-count",
+  "channel": "orders",
+  "connCount": "2",
+  "connId": "abcd1234"
+}`
+		res, err := parseWebSocketEvent([]byte(input))
+		assert.NoError(t, err)
+		opEvent, ok := res.(*WebSocketEvent)
+		assert.True(t, ok)
+		assert.Equal(t, WebSocketEvent{
+			Event:     WsEventTypeChannelConnCount,
+			ConnChan:  "orders",
+			ConnCount: "2",
+			ConnId:    "abcd1234",
+		}, *opEvent)
+
+		// It must be treated as a valid (non-error) control frame.
+		assert.NoError(t, opEvent.IsValid())
+		assert.False(t, opEvent.IsServiceUpgradeNotice())
+	})
+
+	t.Run("channel-conn-count-error event", func(t *testing.T) {
+		input := `{
+  "event": "channel-conn-count-error",
+  "channel": "orders",
+  "connCount": "20",
+  "connId": "a4d3ae55"
+}`
+		res, err := parseWebSocketEvent([]byte(input))
+		assert.NoError(t, err)
+		opEvent, ok := res.(*WebSocketEvent)
+		assert.True(t, ok)
+		assert.Equal(t, WebSocketEvent{
+			Event:     WsEventTypeChannelConnCountError,
+			ConnChan:  "orders",
+			ConnCount: "20",
+			ConnId:    "a4d3ae55",
+		}, *opEvent)
+
+		assert.NoError(t, opEvent.IsValid())
+		assert.False(t, opEvent.IsServiceUpgradeNotice())
+	})
+
+	t.Run("service upgrade notice event (64008)", func(t *testing.T) {
+		input := `{
+  "event": "notice",
+  "code": "64008",
+  "msg": "The connection will soon be closed for a service upgrade. Please reconnect.",
+  "connId": "a4d3ae55"
+}`
+		res, err := parseWebSocketEvent([]byte(input))
+		assert.NoError(t, err)
+		opEvent, ok := res.(*WebSocketEvent)
+		assert.True(t, ok)
+		assert.Equal(t, WebSocketEvent{
+			Event:   WsEventTypeNotice,
+			Code:    "64008",
+			Message: "The connection will soon be closed for a service upgrade. Please reconnect.",
+			ConnId:  "a4d3ae55",
+		}, *opEvent)
+
+		// It must be valid (not the invalid-event error branch) and must be recognized
+		// as the service-upgrade notice that triggers a proactive reconnect.
+		assert.NoError(t, opEvent.IsValid())
+		assert.True(t, opEvent.IsServiceUpgradeNotice())
+	})
+}
+
+func TestWebSocketEvent_IsServiceUpgradeNotice(t *testing.T) {
+	tests := []struct {
+		name  string
+		event WebSocketEvent
+		want  bool
+	}{
+		{
+			name:  "service upgrade notice (64008)",
+			event: WebSocketEvent{Event: WsEventTypeNotice, Code: "64008"},
+			want:  true,
+		},
+		{
+			name:  "notice with a different code",
+			event: WebSocketEvent{Event: WsEventTypeNotice, Code: "64009"},
+			want:  false,
+		},
+		{
+			name:  "64008 code but not a notice event",
+			event: WebSocketEvent{Event: WsEventTypeError, Code: "64008"},
+			want:  false,
+		},
+		{
+			name:  "unrelated event",
+			event: WebSocketEvent{Event: WsEventTypeSubscribe},
+			want:  false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.event.IsServiceUpgradeNotice())
+		})
+	}
 }
 
 func TestOrderTradeEvent(t *testing.T) {
